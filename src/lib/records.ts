@@ -1,5 +1,6 @@
 import "server-only";
 import { db, logEvent } from "./db";
+import { cancelGoogleEvent } from "./providers/calendar";
 import { toE164 } from "./util";
 
 export const CONTACT_FIELDS = ["first_name", "last_name", "company", "title", "city", "email", "consent", "event_notes"];
@@ -73,10 +74,25 @@ export function touchesFlow(data: Record<string, unknown>) {
   return FLOW_FIELDS.some((f) => f in data);
 }
 
-// La reunión anterior se borra para que el contacto pueda volver a agendar.
+async function cancelEvents(filter: { contactId?: string }) {
+  let q = db().from("meetings").select("calendar_event_id, contact_id").eq("calendar_provider", "google").not("calendar_event_id", "is", null);
+  if (filter.contactId) q = q.eq("contact_id", filter.contactId);
+  const { data } = await q;
+  for (const m of data ?? []) {
+    try {
+      await cancelGoogleEvent(m.calendar_event_id);
+      await logEvent(m.contact_id, "calendar", "Evento cancelado en Google Calendar");
+    } catch (e) {
+      await logEvent(m.contact_id, "calendar", `No se pudo cancelar el evento: ${(e as Error).message}`, "error");
+    }
+  }
+}
+
+// La reunión anterior se cancela y se borra para que el contacto pueda volver a agendar.
 export async function resetContact(id: string, reason: string) {
   const { data } = await db().from("contacts").select("status").eq("id", id).single();
   if (data?.status === "calling") throw new InputError("El contacto está en llamada; espera a que termine");
+  await cancelEvents({ contactId: id });
   await db().from("meetings").delete().eq("contact_id", id);
   const { error } = await db().from("contacts").update(PIPELINE_RESET).eq("id", id);
   if (error) throw new Error(error.message);
@@ -86,6 +102,7 @@ export async function resetContact(id: string, reason: string) {
 export async function resetAllContacts() {
   await db().from("emails").delete().gte("id", 0);
   await db().from("calls").delete().not("id", "is", null);
+  await cancelEvents({});
   await db().from("meetings").delete().not("id", "is", null);
   const { error } = await db().from("contacts").update(PIPELINE_RESET).not("id", "is", null);
   if (error) throw new Error(error.message);

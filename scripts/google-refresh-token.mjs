@@ -1,4 +1,4 @@
-// Obtiene el GOOGLE_REFRESH_TOKEN de la cuenta que crea los eventos y envía los correos.
+// Obtiene el GOOGLE_REFRESH_TOKEN de la cuenta dueña del calendario.
 // Uso:  GOOGLE_CLIENT_ID=… GOOGLE_CLIENT_SECRET=… node scripts/google-refresh-token.mjs
 // Credencial OAuth tipo "App de escritorio": no requiere registrar la URL de retorno.
 import http from "node:http";
@@ -20,7 +20,8 @@ auth.search = new URLSearchParams({
   scope: [
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/calendar.freebusy",
-    "https://www.googleapis.com/auth/gmail.send",
+    // Solo si PROVIDER_EMAIL=gmail (con SMTP no hace falta)
+    ...(process.env.WITH_GMAIL ? ["https://www.googleapis.com/auth/gmail.send"] : []),
   ].join(" "),
 }).toString();
 

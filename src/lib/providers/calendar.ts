@@ -193,3 +193,16 @@ export async function bookMeeting(
     provider: "sandbox",
   };
 }
+
+// Cancela el evento en Google Calendar y notifica la cancelación a los invitados.
+export async function cancelGoogleEvent(eventId: string) {
+  const token = await googleAccessToken();
+  const url = new URL(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(env.googleCalendarId())}/events/${encodeURIComponent(eventId)}`,
+  );
+  url.searchParams.set("sendUpdates", "all");
+  const res = await fetch(url, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok && res.status !== 404 && res.status !== 410) {
+    throw new Error(`Google Calendar ${res.status}: ${await res.text()}`);
+  }
+}
