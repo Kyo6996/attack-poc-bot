@@ -1,18 +1,27 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { computeStats } from "@/lib/stats";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const [contacts, meetings, events, sandbox] = await Promise.all([
+    const [contacts, meetings, events, sandbox, reps, emails, calls, stats] = await Promise.all([
       db().from("contacts").select("*").order("created_at").order("id"),
       db().from("meetings").select("*").order("starts_at"),
       db().from("events").select("*").order("id", { ascending: false }).limit(120),
       db().from("sandbox_profiles").select("*").order("created_at").order("id"),
+      db().from("sales_reps").select("*").order("area").order("name"),
+      db()
+        .from("emails")
+        .select("id, contact_id, meeting_id, kind, to_email, subject, provider, status, error, created_at")
+        .order("created_at", { ascending: false })
+        .limit(300),
+      db().from("calls").select("*").order("started_at", { ascending: false }).limit(300),
+      computeStats(),
     ]);
-    const err = contacts.error ?? meetings.error ?? events.error ?? sandbox.error;
+    const err = [contacts, meetings, events, sandbox, reps, emails, calls].find((r) => r.error)?.error;
     if (err) throw new Error(err.message);
     return NextResponse.json(
       {
@@ -20,6 +29,10 @@ export async function GET() {
         meetings: meetings.data,
         events: events.data,
         sandbox: sandbox.data,
+        reps: reps.data,
+        emails: emails.data,
+        calls: calls.data,
+        stats,
         providers: env.providers,
       },
       { headers: { "Cache-Control": "no-store" } },

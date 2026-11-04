@@ -34,6 +34,7 @@ export interface Contact {
   call_transcript: string | null;
   recording_url: string | null;
   locked_until: string | null;
+  booking_token: string;
   created_at: string;
   updated_at: string;
 }
@@ -44,8 +45,49 @@ export interface Qualification {
   etapa?: string;
   fecha_meta?: string;
   decisores?: string;
+  cargo?: string;
+  celular?: string;
   referido?: string;
   notas?: string;
+}
+
+export interface SalesRep {
+  id: string;
+  name: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  area: string;
+  active: boolean;
+  created_at: string;
+}
+
+export interface CallRow {
+  id: string;
+  contact_id: string;
+  provider: string;
+  provider_call_id: string | null;
+  status: "in_progress" | "answered" | "missed" | "failed";
+  ended_reason: string | null;
+  outcome: string | null;
+  started_at: string;
+  ended_at: string | null;
+  duration_sec: number | null;
+}
+
+export type EmailKind = "confirmacion" | "seguimiento" | "brief_comercial";
+
+export interface EmailRow {
+  id: number;
+  contact_id: string | null;
+  meeting_id: string | null;
+  kind: EmailKind;
+  to_email: string;
+  subject: string;
+  provider: string;
+  status: "sent" | "failed";
+  error: string | null;
+  created_at: string;
 }
 
 export interface SandboxProfile {
@@ -69,6 +111,8 @@ export interface Meeting {
   meet_url: string | null;
   calendar_event_id: string | null;
   calendar_provider: string;
+  calendar_link: string | null;
+  sales_rep_id: string | null;
   created_at: string;
 }
 

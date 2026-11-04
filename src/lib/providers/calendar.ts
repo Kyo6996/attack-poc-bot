@@ -1,7 +1,8 @@
 import "server-only";
 import { db } from "../db";
 import { env } from "../env";
-import { fullName, type Contact } from "../types";
+import { googleAccessToken } from "../google";
+import { fullName, type Contact, type SalesRep } from "../types";
 
 export interface Slot {
   start: string;
@@ -14,6 +15,7 @@ export interface BookedMeeting {
   endsAt: string;
   meetUrl: string | null;
   eventId: string | null;
+  calendarLink: string | null;
   provider: string;
 }
 
@@ -119,7 +121,12 @@ export async function isSlotFree(startIso: string): Promise<boolean> {
 }
 
 // Con sendUpdates=all es Google quien envía la invitación al correo del contacto.
-export async function bookMeeting(contact: Contact, startIso: string, attendeeEmail: string): Promise<BookedMeeting> {
+export async function bookMeeting(
+  contact: Contact,
+  startIso: string,
+  attendeeEmail: string,
+  rep: SalesRep | null,
+): Promise<BookedMeeting> {
   const start = new Date(startIso);
   const end = new Date(start.getTime() + env.meetingMinutes() * 60000);
   const brand = env.brandName();
@@ -133,6 +140,7 @@ export async function bookMeeting(contact: Contact, startIso: string, attendeeEm
     q.proyecto ? `\nIniciativa: ${q.proyecto}` : "",
     q.etapa ? `Etapa: ${q.etapa}` : "",
     q.fecha_meta ? `Meta: ${q.fecha_meta}` : "",
+    rep ? `\nTe atenderá: ${rep.name}${rep.title ? `, ${rep.title}` : ""}` : "",
     `\nEquipo ${env.companyName()}, en nombre de ${brand}.`,
   ]
     .filter(Boolean)
@@ -153,7 +161,10 @@ export async function bookMeeting(contact: Contact, startIso: string, attendeeEm
         description,
         start: { dateTime: start.toISOString(), timeZone: env.timeZone() },
         end: { dateTime: end.toISOString(), timeZone: env.timeZone() },
-        attendees: [{ email: attendeeEmail, displayName: fullName(contact) }],
+        attendees: [
+          { email: attendeeEmail, displayName: fullName(contact) },
+          ...(rep?.email ? [{ email: rep.email, displayName: rep.name }] : []),
+        ],
         conferenceData: {
           createRequest: { requestId: `poc-${contact.id}-${start.getTime()}`, conferenceSolutionKey: { type: "hangoutsMeet" } },
         },
@@ -167,6 +178,7 @@ export async function bookMeeting(contact: Contact, startIso: string, attendeeEm
       endsAt: end.toISOString(),
       meetUrl: ev.hangoutLink ?? ev.htmlLink ?? null,
       eventId: ev.id,
+      calendarLink: ev.htmlLink ?? null,
       provider: "google",
     };
   }
@@ -177,26 +189,7 @@ export async function bookMeeting(contact: Contact, startIso: string, attendeeEm
     endsAt: end.toISOString(),
     meetUrl: `https://meet.google.com/${code.slice(0, 3)}-${code.slice(3, 7)}-${code.slice(7, 10)} (sandbox)`,
     eventId: null,
+    calendarLink: null,
     provider: "sandbox",
   };
-}
-
-let cachedToken: { value: string; exp: number } | null = null;
-
-async function googleAccessToken(): Promise<string> {
-  if (cachedToken && cachedToken.exp > Date.now() + 60000) return cachedToken.value;
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: env.googleClientId(),
-      client_secret: env.googleClientSecret(),
-      refresh_token: env.googleRefreshToken(),
-      grant_type: "refresh_token",
-    }),
-  });
-  if (!res.ok) throw new Error(`Google OAuth ${res.status}: ${await res.text()}`);
-  const json = (await res.json()) as { access_token: string; expires_in: number };
-  cachedToken = { value: json.access_token, exp: Date.now() + json.expires_in * 1000 };
-  return json.access_token;
 }

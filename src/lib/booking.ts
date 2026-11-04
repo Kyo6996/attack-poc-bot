@@ -1,18 +1,33 @@
 import "server-only";
+import { after } from "next/server";
 import { db, getContact, logEvent, updateContact } from "./db";
+import { sendEmail } from "./email/send";
 import { bookMeeting, formatSlot, getAvailableSlots, isSlotFree } from "./providers/calendar";
-import type { Contact, Qualification } from "./types";
+import { assignRep } from "./reps";
+import { spokenSlot } from "./speech";
+import type { Contact, Qualification, SalesRep } from "./types";
 
-// Compartido por las tools de Vapi y la llamada simulada; devuelve texto que el agente puede usar.
+// Compartido por las tools de Vapi, la llamada simulada y la página pública de agenda.
+// Los textos que devuelve los dice el agente de voz, por eso van redactados para hablarse.
 
 export async function availabilityForAgent(contactId: string): Promise<string> {
   const slots = await getAvailableSlots(3);
-  await logEvent(contactId, "calendar", `Ofreciendo ${slots.length} horarios`, "info", slots);
-  if (slots.length === 0) return "No hay espacios disponibles esta semana. Ofrece que un asesor le escribirá por correo.";
-  return (
-    "Horarios disponibles (hora Colombia). Ofrécelos en lenguaje natural y usa el valor ISO al agendar:\n" +
-    slots.map((s) => `- ${s.label} → ${s.start}`).join("\n")
-  );
+  await logEvent(contactId, "calendar", `Ofreciendo ${slots.length} horarios`, "info", slots.map((s) => s.label));
+  if (slots.length === 0) {
+    return "No hay espacios esta semana. Dile que un especialista le escribirá por correo para cuadrar la hora.";
+  }
+  return [
+    "Ofrece máximo dos de estas opciones, dichas tal cual y con naturalidad (hora Colombia).",
+    "El código entre corchetes es solo para agendar_reunion: NUNCA lo leas en voz alta.",
+    ...slots.map((s) => `- ${spokenSlot(s.start)} [${s.start}]`),
+  ].join("\n");
+}
+
+export interface BookingResult {
+  ok: boolean;
+  message: string;
+  rep?: SalesRep | null;
+  startsAt?: string;
 }
 
 export async function bookForAgent(
@@ -20,7 +35,7 @@ export async function bookForAgent(
   startIso: string,
   emailOverride?: string | null,
   qualification?: Qualification,
-): Promise<{ ok: boolean; message: string }> {
+): Promise<BookingResult> {
   let contact = await getContact(contactId);
   if (qualification && Object.values(qualification).some(Boolean)) {
     contact = await updateContact(contactId, { qualification: { ...contact.qualification, ...clean(qualification) } });
@@ -28,22 +43,23 @@ export async function bookForAgent(
 
   const { data: existing } = await db().from("meetings").select("id").eq("contact_id", contactId).limit(1);
   if (existing && existing.length > 0) {
-    return { ok: true, message: "La reunión ya estaba agendada. Confírmala y despídete." };
+    return { ok: true, message: "La reunión ya estaba agendada. Confírmasela y despídete con amabilidad." };
   }
 
   const email = (emailOverride ?? contact.email ?? "").trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return { ok: false, message: "Falta un correo válido. Pídelo deletreado y vuelve a llamar a agendar_reunion." };
+    return { ok: false, message: "Falta un correo válido. Pídeselo con calma, repítelo para confirmar y vuelve a llamar a agendar_reunion." };
   }
   if (Number.isNaN(Date.parse(startIso))) {
-    return { ok: false, message: "Horario inválido. Llama a consultar_disponibilidad y usa uno de los valores ISO." };
+    return { ok: false, message: "No entendí el horario. Llama a consultar_disponibilidad y usa el código de una de las opciones." };
   }
   if (!(await isSlotFree(startIso))) {
-    return { ok: false, message: "Ese horario acaba de ocuparse. Llama a consultar_disponibilidad y ofrece otro." };
+    return { ok: false, message: "Ese horario se acaba de ocupar. Discúlpate, llama a consultar_disponibilidad y ofrece otro." };
   }
 
   try {
-    const m = await bookMeeting(contact, startIso, email);
+    const rep = await assignRep(contact.qualification?.area_interes);
+    const m = await bookMeeting(contact, startIso, email, rep);
     await db().from("meetings").insert({
       contact_id: contactId,
       starts_at: m.startsAt,
@@ -51,30 +67,56 @@ export async function bookForAgent(
       attendee_email: email,
       meet_url: m.meetUrl,
       calendar_event_id: m.eventId,
+      calendar_link: m.calendarLink,
       calendar_provider: m.provider,
+      sales_rep_id: rep?.id ?? null,
     });
     await updateContact(contactId, { status: "meeting_scheduled", call_outcome: "accepted", email });
     await logEvent(
       contactId,
       "calendar",
-      `Reunión agendada ${formatSlot(m.startsAt)} · invitación ${m.provider === "google" ? "enviada" : "(sandbox)"} a ${email}`,
+      `Reunión agendada ${formatSlot(m.startsAt)}${rep ? ` con ${rep.name}` : ""} · invitación de calendario ${m.provider === "google" ? "enviada" : "(sandbox)"} a ${email}`,
       "success",
       m,
     );
-    return { ok: true, message: `Listo: reunión agendada para el ${formatSlot(m.startsAt)}. La invitación llega a su correo. Confírmalo y despídete.` };
+
+    // Los correos salen después de responder, para no demorar al agente en la llamada.
+    after(async () => {
+      await sendEmail("confirmacion", contactId);
+      if (rep?.email) await sendEmail("brief_comercial", contactId);
+    });
+
+    const repLine = rep
+      ? ` Te va a atender ${rep.name}${rep.title ? `, ${rep.title.toLowerCase()}` : ""}; antes de la reunión te escribe para conocer mejor tu proyecto y llegar preparado.`
+      : "";
+    return {
+      ok: true,
+      rep,
+      startsAt: m.startsAt,
+      message: `Quedó agendada para ${spokenSlot(m.startsAt)}.${repLine} En unos minutos te llega la invitación al correo. Díselo con calidez, con tus palabras, y despídete.`,
+    };
   } catch (e) {
     await logEvent(contactId, "calendar", `Error al agendar: ${(e as Error).message}`, "error");
-    return { ok: false, message: "Hubo un problema técnico al agendar. Dile que un asesor le enviará la invitación por correo hoy mismo." };
+    return { ok: false, message: "Hubo un problema técnico al agendar. Dile que un especialista le enviará la invitación por correo hoy mismo." };
   }
 }
 
-export async function recordOutcome(contact: Contact, outcome: string, notes?: string, qualification?: Qualification) {
+export async function recordOutcome(
+  contact: Contact,
+  outcome: string,
+  notes?: string,
+  qualification?: Qualification,
+  email?: string | null,
+) {
+  const validEmail = email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email.trim().toLowerCase() : null;
   await updateContact(contact.id, {
     call_outcome: outcome,
     call_summary: notes ?? contact.call_summary,
     qualification: { ...contact.qualification, ...clean(qualification ?? {}), ...(notes ? { notas: notes } : {}) },
+    ...(validEmail ? { email: validEmail } : {}),
   });
   await logEvent(contact.id, "call", `Resultado registrado por el agente: ${outcome}${notes ? ` — ${notes}` : ""}`, "info", qualification);
+  if (outcome === "enviar_info_correo") after(() => sendEmail("seguimiento", contact.id).then(() => undefined));
 }
 
 function clean(q: Qualification): Qualification {

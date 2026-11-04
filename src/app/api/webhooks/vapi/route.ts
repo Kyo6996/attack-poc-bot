@@ -1,5 +1,6 @@
 import { after, NextResponse, type NextRequest } from "next/server";
 import { availabilityForAgent, bookForAgent, recordOutcome } from "@/lib/booking";
+import { closeCall } from "@/lib/calls";
 import { db, logEvent, updateContact } from "@/lib/db";
 import { env } from "@/lib/env";
 import { runPipeline } from "@/lib/pipeline";
@@ -28,6 +29,9 @@ interface VapiMessage {
   summary?: string;
   transcript?: string;
   recordingUrl?: string;
+  durationSeconds?: number;
+  startedAt?: string;
+  endedAt?: string;
 }
 
 const NO_ANSWER = ["customer-did-not-answer", "customer-busy", "voicemail", "sip-outbound-unallocated-number"];
@@ -104,6 +108,8 @@ function qualificationFrom(a: Record<string, string>) {
     etapa: a.etapa,
     fecha_meta: a.fecha_meta,
     decisores: a.decisores,
+    cargo: a.cargo,
+    celular: a.celular,
   };
 }
 
@@ -117,8 +123,10 @@ async function runTool(contact: Contact, tc: ToolCall): Promise<string> {
       case "agendar_reunion":
         return (await bookForAgent(contact.id, args.inicio_iso, args.correo || null, qualificationFrom(args))).message;
       case "registrar_resultado":
-        await recordOutcome(contact, args.resultado, args.notas, { ...qualificationFrom(args), referido: args.referido });
-        return "Registrado. Agradece y despídete.";
+        await recordOutcome(contact, args.resultado, args.notas, { ...qualificationFrom(args), referido: args.referido }, args.correo);
+        return args.resultado === "enviar_info_correo"
+          ? "Registrado. El correo con la información sale en unos minutos: díselo, agradece y despídete."
+          : "Registrado. Agradece con calidez y despídete.";
       default:
         return "Herramienta desconocida.";
     }
@@ -128,31 +136,54 @@ async function runTool(contact: Contact, tc: ToolCall): Promise<string> {
   }
 }
 
+// Contestó y quedó resultado → answered. No contestó → llamada perdida.
+// Colgó sin resultado o hubo error → llamada fallida.
 async function finishCall(contact: Contact, m: VapiMessage) {
   const fresh = (await db().from("contacts").select("*").eq("id", contact.id).single()).data as Contact;
   const transcript = m.artifact?.transcript ?? m.transcript ?? null;
   const recording =
     m.artifact?.recordingUrl ?? m.artifact?.recording?.url ?? m.artifact?.recording?.mono?.combinedUrl ?? m.recordingUrl ?? null;
-  const summary = m.analysis?.summary ?? m.summary ?? fresh.call_summary;
+  const reason = m.endedReason ?? "";
+  const missed = NO_ANSWER.includes(reason);
+  const hadOutcome = fresh.status === "meeting_scheduled" || !!fresh.call_outcome;
 
   let status = fresh.status;
+  let summary = m.analysis?.summary ?? m.summary ?? fresh.call_summary;
+  let skip: string | null = null;
   if (status === "calling") {
-    if (NO_ANSWER.includes(m.endedReason ?? "")) status = "no_answer";
-    else if (m.endedReason && /error|failed|pipeline/i.test(m.endedReason)) status = "call_failed";
-    else status = "declined"; // contestó pero no agendó
+    if (missed) {
+      status = "no_answer";
+      skip = reason === "voicemail" ? "Llamada perdida: entró a buzón de voz" : reason === "customer-busy" ? "Llamada perdida: ocupado" : "Llamada perdida: no contestó";
+    } else if (hadOutcome) {
+      status = "declined";
+    } else {
+      status = "call_failed";
+      skip = /customer-ended-call|silence-timed-out/.test(reason)
+        ? "Llamada fallida: se cortó antes de terminar"
+        : `Llamada fallida: ${reason || "error técnico"}`;
+    }
+    summary = summary ?? skip;
   }
+
+  const durationSec =
+    m.durationSeconds ?? (m.startedAt && m.endedAt ? Math.round((Date.parse(m.endedAt) - Date.parse(m.startedAt)) / 1000) : null);
+  await closeCall(
+    { providerCallId: m.call?.id ?? fresh.call_id ?? "" },
+    {
+      status: missed ? "missed" : hadOutcome ? "answered" : "failed",
+      endedReason: reason || null,
+      outcome: fresh.call_outcome,
+      durationSec,
+    },
+  );
 
   await updateContact(contact.id, {
     status,
+    skip_reason: skip ?? fresh.skip_reason,
     call_transcript: transcript,
     recording_url: recording,
     call_summary: summary,
-    call_outcome: fresh.call_outcome ?? m.endedReason ?? null,
+    call_outcome: fresh.call_outcome ?? (reason || null),
   });
-  await logEvent(
-    contact.id,
-    "call",
-    `Llamada finalizada (${m.endedReason ?? "?"}) → ${status}`,
-    status === "meeting_scheduled" ? "success" : "warn",
-  );
+  await logEvent(contact.id, "call", skip ?? `Llamada finalizada (${reason || "?"})`, status === "meeting_scheduled" ? "success" : "warn");
 }

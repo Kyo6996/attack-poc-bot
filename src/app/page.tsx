@@ -1,21 +1,29 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import type { Contact, ContactStatus, EventRow, Meeting, SandboxProfile } from "@/lib/types";
+import type { Stats } from "@/lib/stats";
+import type { CallRow, Contact, ContactStatus, EmailKind, EmailRow, EventRow, Meeting, SalesRep, SandboxProfile } from "@/lib/types";
 import { maskEmail, maskPhone } from "@/lib/util";
 import { Editor, type Field } from "./editor";
+import { StatsPanel } from "./stats";
 
 interface State {
   contacts: Contact[];
   meetings: Meeting[];
   events: EventRow[];
   sandbox: SandboxProfile[];
+  reps: SalesRep[];
+  emails: EmailRow[];
+  calls: CallRow[];
+  stats: Stats;
   providers: Record<string, string>;
 }
 
+type Tab = "contacts" | "agenda" | "reps" | "sandbox";
 type Editing =
   | { kind: "contact"; row: Partial<Contact> }
   | { kind: "sandbox"; row: Partial<SandboxProfile> }
+  | { kind: "rep"; row: Partial<SalesRep> }
   | null;
 
 const STATUS: Record<ContactStatus, { label: string; cls: string }> = {
@@ -24,14 +32,28 @@ const STATUS: Record<ContactStatus, { label: string; cls: string }> = {
   enriching: { label: "Enriqueciendo…", cls: "b-info pulse" },
   phone_found: { label: "Celular encontrado", cls: "b-info" },
   calling: { label: "En llamada…", cls: "b-info pulse" },
-  meeting_scheduled: { label: "Reunión agendada", cls: "b-ok" },
-  declined: { label: "No aceptó", cls: "b-warn" },
-  no_answer: { label: "No contestó", cls: "b-warn" },
-  call_failed: { label: "Error en llamada", cls: "b-err" },
+  meeting_scheduled: { label: "✓ Reunión agendada", cls: "b-ok" },
+  declined: { label: "No agendó", cls: "b-warn" },
+  no_answer: { label: "Llamada perdida", cls: "b-warn" },
+  call_failed: { label: "Llamada fallida", cls: "b-err" },
   skipped: { label: "Omitido", cls: "b-neutral" },
 };
 
+const CALL_STATUS: Record<CallRow["status"], string> = {
+  in_progress: "En curso",
+  answered: "Contestada",
+  missed: "Perdida",
+  failed: "Fallida",
+};
+
+const EMAIL_KIND: Record<EmailKind, string> = {
+  confirmacion: "Confirmación de reunión",
+  seguimiento: "Seguimiento post-ANDICOM",
+  brief_comercial: "Brief al comercial",
+};
+
 const OUTCOME_LABEL: Record<string, string> = { accept: "Acepta", decline: "No acepta", no_answer: "No contesta" };
+const AREAS = ["infraestructura", "dispositivos", "servicios", "IA", "general"];
 
 const CONTACT_FORM: Field[] = [
   { name: "first_name", label: "Nombre", required: true },
@@ -59,27 +81,37 @@ const SANDBOX_FORM: Field[] = [
   },
 ];
 
+const REP_FORM: Field[] = [
+  { name: "name", label: "Nombre", required: true },
+  { name: "title", label: "Cargo", placeholder: "Especialista en Infraestructura" },
+  { name: "email", label: "Correo", type: "email", hint: "Recibe la invitación y el brief del lead" },
+  { name: "phone", label: "Teléfono", type: "tel" },
+  { name: "area", label: "Área que atiende", type: "select", options: AREAS.map((a) => ({ value: a, label: a })) },
+  { name: "active", label: "Activo (recibe nuevas reuniones)", type: "checkbox", wide: true },
+];
+
 const PROVIDER_LABEL: Record<string, string> = {
   linkedin: "LinkedIn",
   enrichment: "Enriquecimiento",
   voice: "Voz",
   calendar: "Calendario",
+  email: "Correo",
 };
 const SANDBOX = ["sandbox", "simulated"];
 const RUNNABLE: ContactStatus[] = ["pending", "linkedin_found", "phone_found"];
 
+const tz = { timeZone: "America/Bogota" } as const;
 const fmtDate = (iso: string) =>
-  new Intl.DateTimeFormat("es-CO", {
-    timeZone: "America/Bogota",
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(iso));
-
+  new Intl.DateTimeFormat("es-CO", { ...tz, weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(iso));
+const fmtDay = (iso: string) =>
+  new Intl.DateTimeFormat("es-CO", { ...tz, weekday: "long", day: "numeric", month: "long" }).format(new Date(iso));
+const fmtHour = (iso: string) => new Intl.DateTimeFormat("es-CO", { ...tz, hour: "numeric", minute: "2-digit" }).format(new Date(iso));
 const fmtTime = (iso: string) =>
-  new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(iso));
+  new Intl.DateTimeFormat("es-CO", { ...tz, hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(iso));
+const fmtShort = (iso: string) =>
+  new Intl.DateTimeFormat("es-CO", { ...tz, day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const meetLink = (m: Meeting) => (m.meet_url?.startsWith("http") ? m.meet_url.split(" ")[0] : null);
 
 async function send(url: string, method: string, body?: unknown): Promise<string | null> {
   const res = await fetch(url, {
@@ -99,7 +131,7 @@ export default function Dashboard() {
   const [auto, setAuto] = useState(false);
   const [msg, setMsg] = useState("");
   const [open, setOpen] = useState<string | null>(null);
-  const [tab, setTab] = useState<"contacts" | "sandbox">("contacts");
+  const [tab, setTab] = useState<Tab>("contacts");
   const [editing, setEditing] = useState<Editing>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -153,7 +185,7 @@ export default function Dashboard() {
   }, [auto, busy, run]);
 
   async function reset() {
-    if (!confirm("¿Reiniciar la demo? Se borran reuniones y bitácora y todos los contactos vuelven a 'Pendiente'.")) return;
+    if (!confirm("¿Reiniciar la demo? Se borran reuniones, correos, llamadas y bitácora, y todos los contactos vuelven a 'Pendiente'.")) return;
     await fetch("/api/demo/reset", { method: "POST" });
     setMsg("Demo reiniciada");
     load();
@@ -162,6 +194,13 @@ export default function Dashboard() {
   async function reprocess(c: Contact) {
     const err = await send(`/api/contacts/${c.id}`, "PATCH", { reprocess: true });
     setMsg(err ?? `${c.first_name} vuelve a pendiente`);
+    load();
+  }
+
+  async function sendMail(contactId: string, kind: EmailKind) {
+    setMsg("Enviando correo…");
+    const err = await send("/api/emails/send", "POST", { contactId, kind });
+    setMsg(err ? `No se pudo enviar: ${err}` : `${EMAIL_KIND[kind]} enviado`);
     load();
   }
 
@@ -179,12 +218,40 @@ export default function Dashboard() {
 
   const contacts = state?.contacts ?? [];
   const sandbox = state?.sandbox ?? [];
-  const meetingOf = (id: string) => state?.meetings.find((m) => m.contact_id === id);
+  const reps = state?.reps ?? [];
+  const meetings = state?.meetings ?? [];
+  const emails = state?.emails ?? [];
+  const calls = state?.calls ?? [];
+  const meetingOf = (id: string) => meetings.find((m) => m.contact_id === id);
+  const repOf = (id: string | null) => reps.find((r) => r.id === id);
+  const contactOf = (id: string) => contacts.find((c) => c.id === id);
+  const lastEmail = (contactId: string, kind: EmailKind) => emails.find((e) => e.contact_id === contactId && e.kind === kind);
   const nameOf = (id: string | null) => {
     const c = contacts.find((x) => x.id === id);
     return c ? `${c.first_name} ${c.last_name}` : null;
   };
   const count = (pred: (c: Contact) => boolean) => contacts.filter(pred).length;
+
+  const emailChip = (contactId: string, kind: EmailKind) => {
+    const e = lastEmail(contactId, kind);
+    if (!e) return <span className="chip-mail none">✉ sin enviar</span>;
+    return e.status === "sent" ? (
+      <span className="chip-mail ok" title={`${e.to_email} · ${fmtShort(e.created_at)}`}>
+        ✓ correo enviado{e.provider === "sandbox" ? " (sandbox)" : ""}
+      </span>
+    ) : (
+      <span className="chip-mail fail" title={e.error ?? ""}>
+        ✗ correo falló
+      </span>
+    );
+  };
+
+  const upcoming = [...meetings].sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+  const byDay = new Map<string, Meeting[]>();
+  for (const m of upcoming) {
+    const k = fmtDay(m.starts_at);
+    byDay.set(k, [...(byDay.get(k) ?? []), m]);
+  }
 
   return (
     <div className="wrap">
@@ -207,16 +274,18 @@ export default function Dashboard() {
 
       {error && (
         <div className="err">
-          {error}. Revisa las variables de entorno y que hayas corrido la migración en Supabase.
+          {error}. Revisa las variables de entorno y que hayas corrido las migraciones en Supabase.
         </div>
       )}
+
+      {state?.stats && <StatsPanel stats={state.stats} />}
 
       <div className="kpis">
         <Kpi n={contacts.length} l="Contactos" />
         <Kpi n={count((c) => !!c.linkedin_url)} l="Perfil de LinkedIn ubicado" />
         <Kpi n={count((c) => !!c.phone)} l="Con celular" />
         <Kpi n={count((c) => !!c.call_id)} l="Llamados" />
-        <Kpi n={state?.meetings.length ?? 0} l="Reuniones agendadas" />
+        <Kpi n={meetings.length} l="Reuniones agendadas" />
         <Kpi n={count((c) => c.status === "skipped")} l="Omitidos" />
       </div>
 
@@ -247,28 +316,38 @@ export default function Dashboard() {
         <section className="card">
           <div className="cardhead">
             <div className="tabs">
-              <button className={tab === "contacts" ? "active" : ""} onClick={() => setTab("contacts")}>
-                Contactos <span className="s">{contacts.length}</span>
-              </button>
-              <button className={tab === "sandbox" ? "active" : ""} onClick={() => setTab("sandbox")}>
-                Datos sandbox <span className="s">{sandbox.length}</span>
-              </button>
+              {(
+                [
+                  ["contacts", "Contactos", contacts.length],
+                  ["agenda", "Agenda", meetings.length],
+                  ["reps", "Comerciales", reps.length],
+                  ["sandbox", "Datos sandbox", sandbox.length],
+                ] as [Tab, string, number][]
+              ).map(([k, label, n]) => (
+                <button key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>
+                  {label} <span className="s">{n}</span>
+                </button>
+              ))}
             </div>
-            <button
-              className="sm"
-              onClick={() =>
-                setEditing(
-                  tab === "contacts"
-                    ? { kind: "contact", row: { consent: true } }
-                    : { kind: "sandbox", row: { mock_call_outcome: "accept" } },
-                )
-              }
-            >
-              + Nuevo
-            </button>
+            {tab !== "agenda" && (
+              <button
+                className="sm"
+                onClick={() =>
+                  setEditing(
+                    tab === "contacts"
+                      ? { kind: "contact", row: { consent: true } }
+                      : tab === "reps"
+                        ? { kind: "rep", row: { area: "infraestructura", active: true } }
+                        : { kind: "sandbox", row: { mock_call_outcome: "accept" } },
+                  )
+                }
+              >
+                + Nuevo
+              </button>
+            )}
           </div>
 
-          {tab === "contacts" ? (
+          {tab === "contacts" && (
             <div className="tablewrap">
               <table>
                 <thead>
@@ -285,6 +364,9 @@ export default function Dashboard() {
                   {contacts.map((c) => {
                     const st = STATUS[c.status];
                     const m = meetingOf(c.id);
+                    const rep = m ? repOf(m.sales_rep_id) : undefined;
+                    const cCalls = calls.filter((x) => x.contact_id === c.id);
+                    const cEmails = emails.filter((x) => x.contact_id === c.id);
                     return (
                       <Fragment key={c.id}>
                         <tr>
@@ -320,20 +402,17 @@ export default function Dashboard() {
                           <td>
                             <span className={`badge ${st.cls}`}>{st.label}</span>
                             {c.skip_reason && <div className="s">{c.skip_reason}</div>}
+                            {cCalls.length > 1 && <div className="s">{cCalls.length} intentos</div>}
                           </td>
                           <td>
                             {m ? (
                               <>
                                 <div>{fmtDate(m.starts_at)}</div>
-                                <div className="s">
-                                  {m.meet_url?.startsWith("http") ? (
-                                    <a href={m.meet_url.split(" ")[0]} target="_blank" rel="noreferrer">
-                                      Meet
-                                    </a>
-                                  ) : null}{" "}
-                                  · {m.calendar_provider}
-                                </div>
+                                {rep && <div className="s">con {rep.name}</div>}
+                                <div style={{ marginTop: 3 }}>{emailChip(c.id, "confirmacion")}</div>
                               </>
+                            ) : c.call_outcome === "enviar_info_correo" ? (
+                              <div>{emailChip(c.id, "seguimiento")}</div>
                             ) : (
                               <span className="s">—</span>
                             )}
@@ -352,35 +431,98 @@ export default function Dashboard() {
                             <button className="sm" onClick={() => setEditing({ kind: "contact", row: c })} disabled={c.status === "calling"}>
                               Editar
                             </button>
-                            {(c.call_transcript || c.call_summary) && (
-                              <button className="sm" onClick={() => setOpen(open === c.id ? null : c.id)}>
-                                {open === c.id ? "Ocultar" : "Llamada"}
-                              </button>
-                            )}
+                            <button className="sm" onClick={() => setOpen(open === c.id ? null : c.id)}>
+                              {open === c.id ? "Cerrar" : "Detalle"}
+                            </button>
                           </td>
                         </tr>
                         {open === c.id && (
                           <tr className="detail">
                             <td colSpan={6}>
-                              {c.call_summary && (
+                              <div className="detail-grid">
                                 <div>
-                                  <b>Resumen:</b> {c.call_summary}
+                                  <h4>Reunión y agenda</h4>
+                                  {m ? (
+                                    <MeetingCard
+                                      m={m}
+                                      rep={rep}
+                                      chip={emailChip(c.id, "confirmacion")}
+                                      onResend={() => sendMail(c.id, "confirmacion")}
+                                    />
+                                  ) : (
+                                    <p className="s">Sin reunión agendada.</p>
+                                  )}
+                                  <h4>Correos</h4>
+                                  {cEmails.length ? (
+                                    <ul className="list">
+                                      {cEmails.map((e) => (
+                                        <li key={e.id}>
+                                          <span className={e.status === "sent" ? "dot ok" : "dot fail"} aria-hidden />
+                                          <b>{EMAIL_KIND[e.kind]}</b> → {e.to_email}
+                                          <span className="s"> · {fmtShort(e.created_at)}{e.provider === "sandbox" ? " · sandbox" : ""}</span>
+                                          {e.status === "failed" && <div className="s err-text">{e.error}</div>}{" "}
+                                          <a href={`/api/emails/${e.id}`} target="_blank" rel="noreferrer">
+                                            Ver correo
+                                          </a>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  ) : (
+                                    <p className="s">Aún no se ha enviado ningún correo.</p>
+                                  )}
+                                  <div className="btnrow">
+                                    {m && (
+                                      <button className="sm" onClick={() => sendMail(c.id, "confirmacion")}>
+                                        {lastEmail(c.id, "confirmacion") ? "Reenviar confirmación" : "Enviar confirmación"}
+                                      </button>
+                                    )}
+                                    <button className="sm" onClick={() => sendMail(c.id, "seguimiento")} disabled={!c.email}>
+                                      {lastEmail(c.id, "seguimiento") ? "Reenviar seguimiento" : "Enviar correo de seguimiento"}
+                                    </button>
+                                  </div>
                                 </div>
-                              )}
-                              {c.qualification && Object.keys(c.qualification).length > 0 && (
-                                <div style={{ marginTop: 6 }}>
-                                  <b>Calificación:</b>{" "}
-                                  {Object.entries(c.qualification)
-                                    .map(([k, v]) => `${k.replace("_", " ")}: ${v}`)
-                                    .join(" · ")}
+                                <div>
+                                  <h4>Llamadas</h4>
+                                  {cCalls.length ? (
+                                    <ul className="list">
+                                      {cCalls.map((x) => (
+                                        <li key={x.id}>
+                                          <span className={`dot ${x.status === "answered" ? "ok" : x.status === "in_progress" ? "info" : "fail"}`} aria-hidden />
+                                          <b>{CALL_STATUS[x.status]}</b>
+                                          <span className="s">
+                                            {" "}
+                                            · {fmtShort(x.started_at)}
+                                            {x.duration_sec ? ` · ${Math.floor(x.duration_sec / 60)}:${String(x.duration_sec % 60).padStart(2, "0")} min` : ""}
+                                            {x.ended_reason ? ` · ${x.ended_reason}` : ""} · {x.provider}
+                                          </span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  ) : (
+                                    <p className="s">Sin intentos de llamada.</p>
+                                  )}
+                                  {c.call_summary && (
+                                    <p>
+                                      <b>Resumen:</b> {c.call_summary}
+                                    </p>
+                                  )}
+                                  {c.qualification && Object.keys(c.qualification).length > 0 && (
+                                    <p>
+                                      <b>Calificación:</b>{" "}
+                                      {Object.entries(c.qualification)
+                                        .map(([k, v]) => `${k.replace("_", " ")}: ${v}`)
+                                        .join(" · ")}
+                                    </p>
+                                  )}
+                                  {c.recording_url && <audio controls src={c.recording_url} />}
                                 </div>
+                              </div>
+                              {c.call_transcript && (
+                                <details>
+                                  <summary>Transcripción</summary>
+                                  <pre>{c.call_transcript}</pre>
+                                </details>
                               )}
-                              {c.recording_url && (
-                                <div style={{ marginTop: 6 }}>
-                                  <audio controls src={c.recording_url} />
-                                </div>
-                              )}
-                              {c.call_transcript && <pre>{c.call_transcript}</pre>}
                             </td>
                           </tr>
                         )}
@@ -397,11 +539,106 @@ export default function Dashboard() {
                 </tbody>
               </table>
             </div>
-          ) : (
+          )}
+
+          {tab === "agenda" && (
+            <div className="agenda">
+              {byDay.size === 0 && <p className="s">Todavía no hay reuniones agendadas.</p>}
+              {[...byDay.entries()].map(([day, ms]) => (
+                <div key={day} className="agenda-day">
+                  <h3>{cap(day)}</h3>
+                  {ms.map((m) => {
+                    const c = contactOf(m.contact_id);
+                    const rep = repOf(m.sales_rep_id);
+                    return (
+                      <div key={m.id} className="agenda-item">
+                        <div className="agenda-time">
+                          {fmtHour(m.starts_at)}
+                          <span className="s">{fmtHour(m.ends_at)}</span>
+                        </div>
+                        <div className="agenda-main">
+                          <b>{c ? `${c.first_name} ${c.last_name}` : "Contacto eliminado"}</b>
+                          <span className="s"> · {c?.company}</span>
+                          <div className="s">
+                            {rep ? `Atiende ${rep.name}${rep.title ? ` (${rep.title})` : ""}` : "Sin comercial asignado"}
+                            {c?.qualification?.area_interes ? ` · ${c.qualification.area_interes}` : ""}
+                          </div>
+                          <div className="btnrow">
+                            {meetLink(m) && (
+                              <a className="btn sm" href={meetLink(m)!} target="_blank" rel="noreferrer">
+                                Google Meet
+                              </a>
+                            )}
+                            {m.calendar_link && (
+                              <a className="btn sm" href={m.calendar_link} target="_blank" rel="noreferrer">
+                                Ver en Google Calendar
+                              </a>
+                            )}
+                            <span className={`chip-mail ${m.calendar_provider === "google" ? "ok" : "none"}`}>
+                              {m.calendar_provider === "google" ? "✓ invitación de calendario enviada" : "invitación (sandbox)"}
+                            </span>
+                            {c && emailChip(c.id, "confirmacion")}
+                            {c && (
+                              <button className="sm" onClick={() => sendMail(c.id, "confirmacion")}>
+                                Reenviar correo
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {tab === "reps" && (
+            <div className="tablewrap">
+              <p className="s" style={{ padding: "10px 14px 0", margin: 0 }}>
+                Cada reunión se asigna al comercial activo del área de interés con menos reuniones próximas. Si tiene correo, recibe la
+                invitación y un brief del lead para darle atención previa.
+              </p>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Comercial</th>
+                    <th>Área</th>
+                    <th>Correo</th>
+                    <th>Próximas reuniones</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {reps.map((r) => (
+                    <tr key={r.id}>
+                      <td>
+                        <b>{r.name}</b>
+                        <div className="s">
+                          {r.title}
+                          {!r.active && " · inactivo"}
+                        </div>
+                      </td>
+                      <td>{r.area}</td>
+                      <td className="mono">{r.email ? maskEmail(r.email) : <span className="s">sin correo</span>}</td>
+                      <td>{meetings.filter((m) => m.sales_rep_id === r.id && m.starts_at >= new Date().toISOString()).length}</td>
+                      <td className="rowactions">
+                        <button className="sm" onClick={() => setEditing({ kind: "rep", row: r })}>
+                          Editar
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {tab === "sandbox" && (
             <>
               <p className="s" style={{ padding: "10px 14px 0", margin: 0 }}>
-                Simulan lo que LinkedIn y SignalHire saben de cada persona cuando esos pasos están en modo sandbox.
-                Al editar un perfil, los contactos que lo usaron vuelven a pendiente.
+                Simulan lo que LinkedIn y SignalHire saben de cada persona cuando esos pasos están en modo sandbox. Al editar un perfil, los
+                contactos que lo usaron vuelven a pendiente.
               </p>
               <div className="tablewrap">
                 <table>
@@ -478,11 +715,15 @@ export default function Dashboard() {
             load();
             return err;
           }}
-          onDelete={editing.row.id ? async () => {
-            const err = await send(`/api/contacts/${editing.row.id}`, "DELETE");
-            load();
-            return err;
-          } : undefined}
+          onDelete={
+            editing.row.id
+              ? async () => {
+                  const err = await send(`/api/contacts/${editing.row.id}`, "DELETE");
+                  load();
+                  return err;
+                }
+              : undefined
+          }
           onClose={() => setEditing(null)}
         />
       )}
@@ -494,21 +735,77 @@ export default function Dashboard() {
           initial={editing.row}
           note="Para que el bot encuentre a un contacto, el nombre y la empresa deben coincidir con los de la pestaña Contactos."
           onSave={async (data) => {
-            const err = editing.row.id
-              ? await send(`/api/sandbox/${editing.row.id}`, "PATCH", data)
-              : await send("/api/sandbox", "POST", data);
+            const err = editing.row.id ? await send(`/api/sandbox/${editing.row.id}`, "PATCH", data) : await send("/api/sandbox", "POST", data);
             if (!err) setMsg("Perfil sandbox guardado");
             load();
             return err;
           }}
-          onDelete={editing.row.id ? async () => {
-            const err = await send(`/api/sandbox/${editing.row.id}`, "DELETE");
-            load();
-            return err;
-          } : undefined}
+          onDelete={
+            editing.row.id
+              ? async () => {
+                  const err = await send(`/api/sandbox/${editing.row.id}`, "DELETE");
+                  load();
+                  return err;
+                }
+              : undefined
+          }
           onClose={() => setEditing(null)}
         />
       )}
+
+      {editing?.kind === "rep" && (
+        <Editor
+          title={editing.row.id ? "Editar comercial" : "Nuevo comercial"}
+          fields={REP_FORM}
+          initial={editing.row}
+          onSave={async (data) => {
+            const err = editing.row.id ? await send(`/api/reps/${editing.row.id}`, "PATCH", data) : await send("/api/reps", "POST", data);
+            if (!err) setMsg("Comercial guardado");
+            load();
+            return err;
+          }}
+          onDelete={
+            editing.row.id
+              ? async () => {
+                  const err = await send(`/api/reps/${editing.row.id}`, "DELETE");
+                  load();
+                  return err;
+                }
+              : undefined
+          }
+          onClose={() => setEditing(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function MeetingCard({ m, rep, chip, onResend }: { m: Meeting; rep?: SalesRep; chip: React.ReactNode; onResend: () => void }) {
+  const link = meetLink(m);
+  return (
+    <div className="meeting">
+      <div>
+        <b>{cap(fmtDay(m.starts_at))}</b> · {fmtHour(m.starts_at)} – {fmtHour(m.ends_at)}
+      </div>
+      <div className="s">
+        Invitado: {m.attendee_email} · {rep ? `atiende ${rep.name}` : "sin comercial"}
+      </div>
+      <div className="btnrow">
+        {link && (
+          <a className="btn sm" href={link} target="_blank" rel="noreferrer">
+            Google Meet
+          </a>
+        )}
+        {m.calendar_link && (
+          <a className="btn sm" href={m.calendar_link} target="_blank" rel="noreferrer">
+            Google Calendar
+          </a>
+        )}
+        {chip}
+        <button className="sm" onClick={onResend}>
+          Reenviar
+        </button>
+      </div>
     </div>
   );
 }

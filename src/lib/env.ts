@@ -15,6 +15,7 @@ export type LinkedInProvider = "sandbox" | "serper";
 export type EnrichmentProvider = "sandbox" | "signalhire";
 export type VoiceProvider = "simulated" | "vapi";
 export type CalendarProvider = "sandbox" | "google";
+export type EmailProvider = "sandbox" | "gmail";
 
 export const env = {
   supabaseUrl: () => req("SUPABASE_URL"),
@@ -32,7 +33,16 @@ export const env = {
     enrichment: (opt("PROVIDER_ENRICHMENT") ?? "sandbox") as EnrichmentProvider,
     voice: (opt("PROVIDER_VOICE") ?? "simulated") as VoiceProvider,
     calendar: (opt("PROVIDER_CALENDAR") ?? "sandbox") as CalendarProvider,
+    email: (opt("PROVIDER_EMAIL") ?? "sandbox") as EmailProvider,
   },
+
+  // Firma del correo de seguimiento (el remitente es la cuenta de Google conectada)
+  sender: () => ({
+    name: opt("SENDER_NAME") ?? "Equipo Attack",
+    title: opt("SENDER_TITLE") ?? "Ejecutivo de cuenta",
+    phone: opt("SENDER_PHONE") ?? "",
+    email: opt("SENDER_EMAIL") ?? "",
+  }),
 
   serperKey: () => req("SERPER_API_KEY"),
   anthropicKey: () => opt("ANTHROPIC_API_KEY"),

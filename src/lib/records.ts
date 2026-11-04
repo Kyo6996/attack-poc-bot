@@ -4,6 +4,16 @@ import { toE164 } from "./util";
 
 export const CONTACT_FIELDS = ["first_name", "last_name", "company", "title", "city", "email", "consent", "event_notes"];
 export const SANDBOX_FIELDS = ["full_name", "company", "headline", "linkedin_url", "mobile_phone", "email", "mock_call_outcome"];
+export const REP_FIELDS = ["name", "title", "email", "phone", "area", "active"];
+const AREAS = ["dispositivos", "infraestructura", "servicios", "IA", "general"];
+
+export function validateRep(data: Record<string, unknown>, creating: boolean) {
+  if (creating && !data.name) throw new InputError("El nombre es obligatorio");
+  if ("name" in data && !data.name) throw new InputError("El nombre no puede quedar vacío");
+  if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(data.email))) throw new InputError("Correo inválido");
+  if ("area" in data && !AREAS.includes(String(data.area))) throw new InputError("Área inválida");
+  if ("active" in data) data.active = Boolean(data.active);
+}
 
 // Campos que cambian el resultado de algún paso: si se editan, el contacto se vuelve a procesar.
 const FLOW_FIELDS = ["first_name", "last_name", "company", "title", "consent"];
@@ -74,6 +84,8 @@ export async function resetContact(id: string, reason: string) {
 }
 
 export async function resetAllContacts() {
+  await db().from("emails").delete().gte("id", 0);
+  await db().from("calls").delete().not("id", "is", null);
   await db().from("meetings").delete().not("id", "is", null);
   const { error } = await db().from("contacts").update(PIPELINE_RESET).not("id", "is", null);
   if (error) throw new Error(error.message);
