@@ -48,6 +48,18 @@ export interface Qualification {
   notas?: string;
 }
 
+export interface SandboxProfile {
+  id: string;
+  full_name: string;
+  company: string | null;
+  headline: string | null;
+  linkedin_url: string;
+  mobile_phone: string | null;
+  email: string | null;
+  mock_call_outcome: "accept" | "decline" | "no_answer";
+  created_at: string;
+}
+
 export interface Meeting {
   id: string;
   contact_id: string;

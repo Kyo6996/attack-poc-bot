@@ -10,3 +10,6 @@ next-env.d.ts
 *.docx
 AGENTS.md
 CLAUDE.md
+
+.vercel
+.env*
