@@ -1,0 +1,334 @@
+"use client";
+
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import type { Contact, ContactStatus, EventRow, Meeting } from "@/lib/types";
+import { maskPhone } from "@/lib/util";
+
+interface State {
+  contacts: Contact[];
+  meetings: Meeting[];
+  events: EventRow[];
+  providers: Record<string, string>;
+}
+
+const STATUS: Record<ContactStatus, { label: string; cls: string }> = {
+  pending: { label: "Pendiente", cls: "b-neutral" },
+  linkedin_found: { label: "Perfil ubicado", cls: "b-info" },
+  enriching: { label: "Enriqueciendo…", cls: "b-info pulse" },
+  phone_found: { label: "Celular encontrado", cls: "b-info" },
+  calling: { label: "En llamada…", cls: "b-info pulse" },
+  meeting_scheduled: { label: "Reunión agendada", cls: "b-ok" },
+  declined: { label: "No aceptó", cls: "b-warn" },
+  no_answer: { label: "No contestó", cls: "b-warn" },
+  call_failed: { label: "Error en llamada", cls: "b-err" },
+  skipped: { label: "Omitido", cls: "b-neutral" },
+};
+
+const PROVIDER_LABEL: Record<string, string> = {
+  linkedin: "LinkedIn",
+  enrichment: "Enriquecimiento",
+  voice: "Voz",
+  calendar: "Calendario",
+};
+const SANDBOX = ["sandbox", "simulated"];
+
+const fmtDate = (iso: string) =>
+  new Intl.DateTimeFormat("es-CO", {
+    timeZone: "America/Bogota",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(iso));
+
+const fmtTime = (iso: string) =>
+  new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(iso));
+
+export default function Dashboard() {
+  const [state, setState] = useState<State | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [auto, setAuto] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [open, setOpen] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const load = useCallback(async () => {
+    const res = await fetch("/api/state", { cache: "no-store" });
+    const json = await res.json();
+    if (!res.ok) setError(json.error ?? "Error cargando estado");
+    else {
+      setError(null);
+      setState(json);
+    }
+  }, []);
+
+  const run = useCallback(
+    async (contactId?: string) => {
+      setBusy(true);
+      setMsg(contactId ? "Procesando contacto…" : "Ejecutando pipeline…");
+      try {
+        const res = await fetch("/api/pipeline/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(contactId ? { contactId } : {}),
+        });
+        const json = await res.json();
+        if (!res.ok) setMsg(`Error: ${json.error}`);
+        else setMsg(json.waiting ?? (json.processed.length ? `${json.processed.length} contacto(s) avanzados` : "No hay contactos pendientes"));
+      } finally {
+        setBusy(false);
+        load();
+      }
+    },
+    [load],
+  );
+
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 2500);
+    return () => clearInterval(t);
+  }, [load]);
+
+  useEffect(() => {
+    if (!auto) return;
+    const t = setInterval(() => !busy && run(), 8000);
+    return () => clearInterval(t);
+  }, [auto, busy, run]);
+
+  async function reset() {
+    if (!confirm("¿Reiniciar la demo? Se borran reuniones y bitácora y todos los contactos vuelven a 'Pendiente'.")) return;
+    await fetch("/api/demo/reset", { method: "POST" });
+    setMsg("Demo reiniciada");
+    load();
+  }
+
+  async function importCsv(file: File) {
+    const csv = await file.text();
+    const res = await fetch("/api/contacts/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ csv }),
+    });
+    const json = await res.json();
+    setMsg(res.ok ? `Importados ${json.inserted} contactos` : `Error: ${json.error}`);
+    load();
+  }
+
+  const contacts = state?.contacts ?? [];
+  const meetingOf = (id: string) => state?.meetings.find((m) => m.contact_id === id);
+  const nameOf = (id: string | null) => {
+    const c = contacts.find((x) => x.id === id);
+    return c ? `${c.first_name} ${c.last_name}` : null;
+  };
+  const count = (pred: (c: Contact) => boolean) => contacts.filter(pred).length;
+
+  return (
+    <div className="wrap">
+      <header className="top">
+        <div>
+          <h1>
+            Bot de prospección <span>· Attack POC</span>
+          </h1>
+          <div className="sub">LinkedIn → enriquecimiento → llamada de voz con IA → reunión agendada</div>
+        </div>
+        <div className="chips">
+          {state &&
+            Object.entries(state.providers).map(([k, v]) => (
+              <span key={k} className={`chip ${SANDBOX.includes(v) ? "" : "live"}`}>
+                {PROVIDER_LABEL[k] ?? k}: <b>{v}</b>
+              </span>
+            ))}
+        </div>
+      </header>
+
+      {error && (
+        <div className="err">
+          {error}. Revisa las variables de entorno y que hayas corrido la migración en Supabase.
+        </div>
+      )}
+
+      <div className="kpis">
+        <Kpi n={contacts.length} l="Contactos" />
+        <Kpi n={count((c) => !!c.linkedin_url)} l="Perfil de LinkedIn ubicado" />
+        <Kpi n={count((c) => !!c.phone)} l="Con celular" />
+        <Kpi n={count((c) => !!c.call_id)} l="Llamados" />
+        <Kpi n={state?.meetings.length ?? 0} l="Reuniones agendadas" />
+        <Kpi n={count((c) => c.status === "skipped")} l="Omitidos" />
+      </div>
+
+      <div className="bar">
+        <button className="primary" onClick={() => run()} disabled={busy}>
+          ▶ Ejecutar pipeline
+        </button>
+        <button className={auto ? "on" : ""} onClick={() => setAuto((a) => !a)}>
+          {auto ? "● Automático activo" : "Automático"}
+        </button>
+        <button onClick={() => fileRef.current?.click()}>Importar CSV</button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,text/csv"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) importCsv(f);
+            e.target.value = "";
+          }}
+        />
+        <button onClick={reset}>Reiniciar demo</button>
+        <span className="msg">{msg}</span>
+      </div>
+
+      <div className="grid">
+        <section className="card">
+          <h2>Contactos</h2>
+          <div className="tablewrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Persona</th>
+                  <th>LinkedIn</th>
+                  <th>Celular</th>
+                  <th>Estado</th>
+                  <th>Reunión</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {contacts.map((c) => {
+                  const st = STATUS[c.status];
+                  const m = meetingOf(c.id);
+                  return (
+                    <Fragment key={c.id}>
+                      <tr>
+                        <td>
+                          <div>
+                            <b>
+                              {c.first_name} {c.last_name}
+                            </b>
+                          </div>
+                          <div className="s">
+                            {c.title} · {c.company}
+                            {!c.consent && " · sin consentimiento"}
+                          </div>
+                        </td>
+                        <td>
+                          {c.linkedin_url ? (
+                            <>
+                              <a href={c.linkedin_url} target="_blank" rel="noreferrer">
+                                Ver perfil
+                              </a>
+                              <div className="s">
+                                {Math.round((c.linkedin_confidence ?? 0) * 100)}% · {c.linkedin_source}
+                              </div>
+                            </>
+                          ) : (
+                            <span className="s">—</span>
+                          )}
+                        </td>
+                        <td className="mono">
+                          {maskPhone(c.phone)}
+                          {c.enrichment_source && <div className="s">{c.enrichment_source}</div>}
+                        </td>
+                        <td>
+                          <span className={`badge ${st.cls}`}>{st.label}</span>
+                          {c.skip_reason && <div className="s">{c.skip_reason}</div>}
+                        </td>
+                        <td>
+                          {m ? (
+                            <>
+                              <div>{fmtDate(m.starts_at)}</div>
+                              <div className="s">
+                                {m.meet_url?.startsWith("http") ? (
+                                  <a href={m.meet_url.split(" ")[0]} target="_blank" rel="noreferrer">
+                                    Meet
+                                  </a>
+                                ) : null}{" "}
+                                · {m.calendar_provider}
+                              </div>
+                            </>
+                          ) : (
+                            <span className="s">—</span>
+                          )}
+                        </td>
+                        <td style={{ whiteSpace: "nowrap" }}>
+                          {["pending", "linkedin_found", "phone_found"].includes(c.status) && (
+                            <button onClick={() => run(c.id)} disabled={busy} title="Procesar solo este contacto">
+                              ▶
+                            </button>
+                          )}{" "}
+                          {(c.call_transcript || c.call_summary) && (
+                            <button onClick={() => setOpen(open === c.id ? null : c.id)}>
+                              {open === c.id ? "Ocultar" : "Llamada"}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                      {open === c.id && (
+                        <tr className="detail">
+                          <td colSpan={6}>
+                            {c.call_summary && (
+                              <div>
+                                <b>Resumen:</b> {c.call_summary}
+                              </div>
+                            )}
+                            {c.qualification && Object.keys(c.qualification).length > 0 && (
+                              <div style={{ marginTop: 6 }}>
+                                <b>Calificación:</b>{" "}
+                                {Object.entries(c.qualification)
+                                  .map(([k, v]) => `${k.replace("_", " ")}: ${v}`)
+                                  .join(" · ")}
+                              </div>
+                            )}
+                            {c.recording_url && (
+                              <div style={{ marginTop: 6 }}>
+                                <audio controls src={c.recording_url} />
+                              </div>
+                            )}
+                            {c.call_transcript && <pre>{c.call_transcript}</pre>}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+                {contacts.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="s">
+                      Sin contactos. Corre supabase/seed.sql o importa un CSV.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <aside className="card">
+          <h2>Bitácora en vivo</h2>
+          <div className="log">
+            {(state?.events ?? []).map((e) => (
+              <div key={e.id} className={`ev ${e.level}`}>
+                <span className="t">{fmtTime(e.created_at)}</span>
+                <span className="step">{e.step}</span>
+                {nameOf(e.contact_id) && <b>{nameOf(e.contact_id)}: </b>}
+                {e.message}
+              </div>
+            ))}
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function Kpi({ n, l }: { n: number; l: string }) {
+  return (
+    <div className="kpi">
+      <div className="n">{n}</div>
+      <div className="l">{l}</div>
+    </div>
+  );
+}
