@@ -75,11 +75,13 @@ async function deliver(params: {
     error,
     provider_id: providerId,
   });
-  const label = { confirmacion: "Confirmación", seguimiento: "Correo de seguimiento", brief_comercial: "Brief al comercial" }[params.kind];
+  const label = { confirmacion: "Confirmación enviada", seguimiento: "Correo de seguimiento enviado", brief_comercial: "Brief enviado al comercial" }[
+    params.kind
+  ];
   await logEvent(
     params.contactId,
     "email",
-    status === "sent" ? `${label} enviado a ${params.to}${provider === "sandbox" ? " (sandbox)" : ""}` : `${label} falló: ${error}`,
+    status === "sent" ? `${label} a ${params.to}${provider === "sandbox" ? " (sandbox)" : ""}` : `${label.split(" enviad")[0]} falló: ${error}`,
     status === "sent" ? "success" : "error",
   );
   return { ok: status === "sent", error };
