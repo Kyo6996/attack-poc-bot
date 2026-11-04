@@ -1,9 +1,11 @@
 import "server-only";
+import nodemailer, { type Transporter } from "nodemailer";
 import { db, logEvent } from "../db";
 import { env } from "../env";
 import { googleAccessToken } from "../google";
 import type { Contact, EmailKind, Meeting, SalesRep } from "../types";
-import { confirmationEmail, followupEmail, htmlToText, repBriefEmail } from "./templates";
+import { meetingIcs } from "./ics";
+import { confirmationEmail, followupEmail, htmlToText, meetUrlOf, repBriefEmail } from "./templates";
 
 const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64");
 const b64url = (s: string) => b64(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -44,6 +46,28 @@ async function sendGmail(to: string, subject: string, html: string): Promise<str
   return ((await res.json()) as { id: string }).id;
 }
 
+// Gmail SMTP con contraseña de aplicación. La invitación .ics va como parte text/calendar
+// para que Gmail muestre la tarjeta de evento con Sí / No.
+let transport: Transporter | null = null;
+async function sendSmtp(to: string, subject: string, html: string, ics?: string): Promise<string> {
+  const sender = env.sender();
+  transport ??= nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 465,
+    secure: true,
+    auth: { user: env.smtpUser(), pass: env.smtpPass() },
+  });
+  const info = await transport.sendMail({
+    from: { name: sender.name, address: env.smtpUser() },
+    to,
+    subject,
+    html,
+    text: htmlToText(html),
+    ...(ics ? { icalEvent: { method: "REQUEST", filename: "invitacion.ics", content: ics } } : {}),
+  });
+  return info.messageId;
+}
+
 async function deliver(params: {
   kind: EmailKind;
   contactId: string;
@@ -51,6 +75,7 @@ async function deliver(params: {
   to: string;
   subject: string;
   html: string;
+  ics?: string;
 }) {
   const provider = env.providers.email;
   let status: "sent" | "failed" = "sent";
@@ -59,6 +84,7 @@ async function deliver(params: {
   try {
     // En sandbox el correo no sale: queda guardado para verlo desde el panel.
     if (provider === "gmail") providerId = await sendGmail(params.to, params.subject, params.html);
+    else if (provider === "smtp") providerId = await sendSmtp(params.to, params.subject, params.html, params.ics);
   } catch (e) {
     status = "failed";
     error = (e as Error).message.slice(0, 500);
@@ -117,7 +143,9 @@ export async function sendEmail(kind: EmailKind, contactId: string): Promise<{ o
 
   if (kind === "confirmacion") {
     const { subject, html } = confirmationEmail(c, meeting, rep);
-    return deliver({ kind, contactId, meetingId: meeting.id, to: meeting.attendee_email, subject, html });
+    // Si la reunión no vino de Google Calendar, la invitación de calendario va en el correo.
+    const ics = meeting.calendar_provider === "google" ? undefined : meetingIcs(c, meeting, rep, meetUrlOf(meeting));
+    return deliver({ kind, contactId, meetingId: meeting.id, to: meeting.attendee_email, subject, html, ics });
   }
 
   if (!rep?.email) return { ok: false, error: "El comercial asignado no tiene correo" };

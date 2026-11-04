@@ -187,7 +187,7 @@ export async function bookMeeting(
   return {
     startsAt: start.toISOString(),
     endsAt: end.toISOString(),
-    meetUrl: `https://meet.google.com/${code.slice(0, 3)}-${code.slice(3, 7)}-${code.slice(7, 10)} (sandbox)`,
+    meetUrl: env.meetRoomUrl() ?? `https://meet.google.com/${code.slice(0, 3)}-${code.slice(3, 7)}-${code.slice(7, 10)} (sandbox)`,
     eventId: null,
     calendarLink: null,
     provider: "sandbox",

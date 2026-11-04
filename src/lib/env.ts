@@ -15,7 +15,7 @@ export type LinkedInProvider = "sandbox" | "serper";
 export type EnrichmentProvider = "sandbox" | "signalhire";
 export type VoiceProvider = "simulated" | "vapi";
 export type CalendarProvider = "sandbox" | "google";
-export type EmailProvider = "sandbox" | "gmail";
+export type EmailProvider = "sandbox" | "gmail" | "smtp";
 
 export const env = {
   supabaseUrl: () => req("SUPABASE_URL"),
@@ -81,4 +81,10 @@ export const env = {
   }),
 
   dashboardPassword: () => opt("DASHBOARD_PASSWORD"),
+
+  // Gmail por SMTP con contraseña de aplicación (Google la muestra con espacios)
+  smtpUser: () => req("SMTP_USER"),
+  smtpPass: () => req("SMTP_PASS").replace(/\s+/g, ""),
+  // Sala de Meet fija para cuando el calendario no es Google (no se puede crear Meet sin OAuth)
+  meetRoomUrl: () => opt("MEET_ROOM_URL"),
 };

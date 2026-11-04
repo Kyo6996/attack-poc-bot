@@ -77,6 +77,11 @@ function layout(opts: { preheader: string; eyebrow: string; title: string; body:
 
 const p = (html: string) => `<p style="margin:0 0 14px;font:15px/1.65 Arial,Helvetica,sans-serif;color:${INK}">${html}</p>`;
 
+// Los enlaces "(sandbox)" son de ejemplo: no se muestran al cliente.
+export function meetUrlOf(m: Pick<Meeting, "meet_url">) {
+  return m.meet_url?.startsWith("http") && !m.meet_url.includes("(sandbox)") ? m.meet_url.split(" ")[0] : null;
+}
+
 export function googleCalendarTemplateUrl(m: Meeting, title: string, details: string) {
   const f = (iso: string) => iso.replace(/[-:]/g, "").replace(/\.\d{3}/, "");
   const u = new URL("https://calendar.google.com/calendar/render");
@@ -84,7 +89,8 @@ export function googleCalendarTemplateUrl(m: Meeting, title: string, details: st
   u.searchParams.set("text", title);
   u.searchParams.set("dates", `${f(m.starts_at)}/${f(m.ends_at)}`);
   u.searchParams.set("details", details);
-  if (m.meet_url?.startsWith("http")) u.searchParams.set("location", m.meet_url.split(" ")[0]);
+  const meet = meetUrlOf(m);
+  if (meet) u.searchParams.set("location", meet);
   return u.toString();
 }
 
@@ -92,7 +98,7 @@ export function confirmationEmail(c: Contact, m: Meeting, rep: SalesRep | null) 
   const brand = env.brandName();
   const date = fmt(m.starts_at, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const time = `${fmt(m.starts_at, { hour: "numeric", minute: "2-digit" })} – ${fmt(m.ends_at, { hour: "numeric", minute: "2-digit" })}`;
-  const meet = m.meet_url?.startsWith("http") ? m.meet_url.split(" ")[0] : null;
+  const meet = meetUrlOf(m);
   const q = c.qualification ?? {};
   const subject = `Confirmada: tu conversación con ${brand} · ${fmt(m.starts_at, { day: "numeric", month: "long" })}`;
   const calUrl = googleCalendarTemplateUrl(m, `${brand} · Conversación con especialista`, meet ? `Google Meet: ${meet}` : "");
@@ -127,7 +133,7 @@ export function confirmationEmail(c: Contact, m: Meeting, rep: SalesRep | null) 
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 22px">
       ${row("Fecha", esc(date.charAt(0).toUpperCase() + date.slice(1)))}
       ${row("Hora", `${esc(time)} <span style="font-weight:400;color:${MUTED}">(hora Colombia)</span>`)}
-      ${row("Modalidad", "Videollamada por Google Meet")}
+      ${row("Modalidad", meet ? "Videollamada por Google Meet" : "Videollamada · el especialista te compartirá el enlace")}
     </table>
     <table role="presentation" cellpadding="0" cellspacing="0"><tr>
       ${meet ? `<td style="padding:0 10px 0 0">${button(meet, "Unirme a Google Meet")}</td>` : ""}
@@ -180,7 +186,7 @@ export function repBriefEmail(c: Contact, m: Meeting, rep: SalesRep) {
     ["Etapa", q.etapa],
     ["Fecha meta", q.fecha_meta],
     ["Decisores", q.decisores],
-    ["Meet", m.meet_url],
+    ["Meet", meetUrlOf(m)],
   ]
     .filter(([, v]) => v)
     .map(
