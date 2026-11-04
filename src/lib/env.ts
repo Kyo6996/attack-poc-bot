@@ -1,3 +1,5 @@
+import { toE164 } from "./util";
+
 function opt(name: string): string | undefined {
   const v = process.env[name];
   return v && v.trim() !== "" ? v.trim() : undefined;
@@ -39,6 +41,11 @@ export const env = {
 
   vapiKey: () => req("VAPI_API_KEY"),
   vapiPhoneNumberId: () => req("VAPI_PHONE_NUMBER_ID"),
+  voiceLiveNumbers: () =>
+    (opt("VOICE_LIVE_NUMBERS") ?? "")
+      .split(",")
+      .map((n) => toE164(n))
+      .filter((n): n is string => !!n),
   vapiModelProvider: () => opt("VAPI_MODEL_PROVIDER") ?? "openai",
   vapiModel: () => opt("VAPI_MODEL") ?? "gpt-4o",
   vapiVoiceProvider: () => opt("VAPI_VOICE_PROVIDER") ?? "azure",

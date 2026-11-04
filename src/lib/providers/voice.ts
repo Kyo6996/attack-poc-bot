@@ -15,7 +15,15 @@ export type CallStart =
 // La simulada usa la misma lógica de agenda que las tools de Vapi.
 export async function startCall(contact: Contact): Promise<CallStart> {
   if (!contact.phone) return { kind: "failed", reason: "sin número" };
-  return env.providers.voice === "vapi" ? startVapiCall(contact) : simulateCall(contact);
+  if (env.providers.voice !== "vapi") return simulateCall(contact);
+
+  // En pruebas solo se marca de verdad a los números autorizados; el resto se simula.
+  const allowed = env.voiceLiveNumbers();
+  if (allowed.length && !allowed.includes(contact.phone)) {
+    await logEvent(contact.id, "call", "Número fuera de VOICE_LIVE_NUMBERS: se simula la llamada");
+    return simulateCall(contact);
+  }
+  return startVapiCall(contact);
 }
 
 const QUALIFICATION_PROPS = {
