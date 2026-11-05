@@ -7,6 +7,7 @@ import { maskEmail, maskPhone } from "@/lib/util";
 import { provenanceRows } from "@/lib/provenance";
 import { Editor, type Field } from "./editor";
 import { PageHeader } from "./ui";
+import { QuickFacts } from "./quickfacts";
 import { downloadTemplate, exportContacts, xlsxToCsv } from "./xlsx";
 
 interface State {
@@ -521,6 +522,7 @@ export function Dashboard({ section }: { section: Section }) {
                         {open === c.id && (
                           <tr className="detail">
                             <td colSpan={7}>
+                              <QuickFacts c={c} />
                               <ProfileCard c={c} onChange={() => setReviewing(c)} />
                               <SignalHireCard
                                 c={c}
