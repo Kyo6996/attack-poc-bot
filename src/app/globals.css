@@ -248,3 +248,14 @@ select { font: inherit; color: var(--text); background: var(--panel); border: 1p
 .transcript p.user b { color: var(--info); }
 .clip { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 0; border-top: 1px solid var(--border); margin-top: 10px; }
 .clip audio { height: 36px; }
+
+/* Ficha y revisión de LinkedIn */
+.ficha { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; background: var(--panel); }
+.ficha-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.ficha-head h4 { margin: 0; }
+.ficha-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; margin-top: 8px; font-size: 13.5px; }
+.ficha-grid .wide { grid-column: 1 / -1; }
+@media (max-width: 700px) { .ficha-grid { grid-template-columns: 1fr; } }
+.cands { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 14px; max-height: 50vh; overflow-y: auto; }
+.cand { display: flex; gap: 12px; align-items: center; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13.5px; }
+.cand.on { border-color: var(--good); }

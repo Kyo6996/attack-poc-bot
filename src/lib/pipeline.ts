@@ -56,24 +56,39 @@ export async function advanceContact(c: Contact, opts: { allowCall: boolean }): 
 
     if (contact.status === "pending") {
       await logEvent(contact.id, "linkedin", `Buscando perfil de ${fullName(contact)} (${env.providers.linkedin})`);
-      const match = await findLinkedInProfile(contact);
-      if (!match) {
+      const r = await findLinkedInProfile(contact);
+      const fill = fillFromProfile(contact, r.best?.headline ?? null, r.profile.location);
+
+      if (r.decision === "review") {
+        contact = await updateContact(contact.id, {
+          status: "needs_review",
+          linkedin_candidates: r.candidates,
+          profile: r.profile,
+          skip_reason: "Confianza media: confirma el perfil correcto",
+        });
+        await logEvent(contact.id, "linkedin", `${r.candidates.length} perfiles posibles (mejor ${Math.round(r.candidates[0].confidence * 100)}%): queda por revisar`, "warn");
+        return contact.status;
+      }
+      if (r.decision === "not_found" || !r.best) {
+        await updateContact(contact.id, { linkedin_candidates: r.candidates, profile: r.profile });
         contact = await skip(contact, "perfil de LinkedIn no encontrado", "linkedin");
         return contact.status;
       }
       contact = await updateContact(contact.id, {
         status: "linkedin_found",
-        linkedin_url: match.url,
-        linkedin_confidence: match.confidence,
-        linkedin_source: match.source,
+        linkedin_url: r.best.url,
+        linkedin_confidence: r.best.confidence,
+        linkedin_source: r.best.origin === "sandbox" ? "sandbox" : r.best.reason.startsWith("IA") ? "serper+claude" : "serper",
+        linkedin_candidates: r.candidates,
+        profile: r.profile,
+        ...fill,
       });
-      await logEvent(
-        contact.id,
-        "linkedin",
-        `Perfil encontrado (${Math.round(match.confidence * 100)}%, ${match.candidates} candidatos): ${match.url}`,
-        "success",
-        { reason: match.reason, source: match.source },
-      );
+      await logEvent(contact.id, "linkedin", `Perfil encontrado (${Math.round(r.best.confidence * 100)}%, ${r.best.origin}): ${r.best.url}`, "success", {
+        reason: r.best.reason,
+      });
+      if (r.profile.company) {
+        await logEvent(contact.id, "linkedin", `Empresa: ${r.profile.company.name}${r.profile.company.website ? ` · ${r.profile.company.website}` : ""}`, "info");
+      }
     }
 
     if (contact.status === "linkedin_found") {
@@ -136,4 +151,12 @@ async function skip(contact: Contact, reason: string, step: string): Promise<Con
 async function refetch(id: string): Promise<Contact> {
   const { data } = await db().from("contacts").select("*").eq("id", id).single();
   return data as Contact;
+}
+
+// Completa solo los campos vacíos: lo que trae la base del cliente manda.
+export function fillFromProfile(c: Contact, headline: string | null, location: string | null): Partial<Contact> {
+  const out: Partial<Contact> = {};
+  if (!c.title && headline) out.title = headline.split(/s+(?:en|at|@||)s+/i)[0].slice(0, 80);
+  if (!c.city && location) out.city = location.split(",")[0].trim();
+  return out;
 }

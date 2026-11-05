@@ -31,6 +31,7 @@ type Editing =
 const STATUS: Record<ContactStatus, { label: string; cls: string }> = {
   pending: { label: "Pendiente", cls: "b-neutral" },
   linkedin_found: { label: "Perfil ubicado", cls: "b-info" },
+  needs_review: { label: "Por revisar", cls: "b-warn" },
   enriching: { label: "Enriqueciendo…", cls: "b-info pulse" },
   phone_found: { label: "Celular encontrado", cls: "b-info" },
   calling: { label: "En llamada…", cls: "b-info pulse" },
@@ -135,6 +136,7 @@ export default function Dashboard() {
   const [open, setOpen] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("contacts");
   const [editing, setEditing] = useState<Editing>(null);
+  const [reviewing, setReviewing] = useState<Contact | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -315,6 +317,7 @@ export default function Dashboard() {
         <Kpi n={count((c) => !!c.phone)} l="Con celular" />
         <Kpi n={count((c) => !!c.call_id)} l="Llamados" />
         <Kpi n={meetings.length} l="Reuniones agendadas" />
+        <Kpi n={count((c) => c.status === "needs_review")} l="Por revisar" />
         <Kpi n={count((c) => c.status === "skipped")} l="Omitidos" />
       </div>
 
@@ -459,6 +462,11 @@ export default function Dashboard() {
                             )}
                           </td>
                           <td className="rowactions">
+                            {c.status === "needs_review" && (
+                              <button className="sm primary" onClick={() => setReviewing(c)}>
+                                Revisar
+                              </button>
+                            )}
                             {RUNNABLE.includes(c.status) && (
                               <button className="sm" onClick={() => run(c.id)} disabled={busy} title="Procesar solo este contacto">
                                 ▶
@@ -480,6 +488,7 @@ export default function Dashboard() {
                         {open === c.id && (
                           <tr className="detail">
                             <td colSpan={6}>
+                              <ProfileCard c={c} onChange={() => setReviewing(c)} />
                               <div className="detail-grid">
                                 <div>
                                   <h4>Reunión y agenda</h4>
@@ -793,6 +802,18 @@ export default function Dashboard() {
         />
       )}
 
+      {reviewing && (
+        <ReviewDialog
+          c={contacts.find((x) => x.id === reviewing.id) ?? reviewing}
+          onDone={(m) => {
+            setReviewing(null);
+            setMsg(m);
+            load();
+          }}
+          onClose={() => setReviewing(null)}
+        />
+      )}
+
       {editing?.kind === "rep" && (
         <Editor
           title={editing.row.id ? "Editar comercial" : "Nuevo comercial"}
@@ -855,6 +876,155 @@ function Kpi({ n, l }: { n: number; l: string }) {
     <div className="kpi">
       <div className="n">{n}</div>
       <div className="l">{l}</div>
+    </div>
+  );
+}
+
+function ProfileCard({ c, onChange }: { c: Contact; onChange: () => void }) {
+  const p = c.profile;
+  const co = p?.company;
+  return (
+    <div className="ficha">
+      <div className="ficha-head">
+        <h4>Ficha encontrada en la web</h4>
+        <button className="sm" onClick={onChange} disabled={c.status === "calling"}>
+          {c.linkedin_url ? "Cambiar perfil" : "Elegir perfil"}
+        </button>
+      </div>
+      {!p ? (
+        <p className="s">Aún no se ha buscado. Se completa en el paso de LinkedIn.</p>
+      ) : (
+        <div className="ficha-grid">
+          <div>
+            <div className="s">Persona</div>
+            <b>{p.headline ?? "Sin titular público"}</b>
+            {p.location && <div className="s">{p.location}</div>}
+            {c.linkedin_url && (
+              <div>
+                <a href={c.linkedin_url} target="_blank" rel="noreferrer">
+                  {c.linkedin_url.replace("https://www.linkedin.com", "")}
+                </a>{" "}
+                <span className="s">· {c.linkedin_source}</span>
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="s">Empresa</div>
+            {co ? (
+              <>
+                <b>{co.name}</b>
+                {co.type && <span className="s"> · {co.type}</span>}
+                {co.description && <div className="s">{co.description.slice(0, 220)}</div>}
+                <div>
+                  {co.website && (
+                    <a href={co.website} target="_blank" rel="noreferrer">
+                      {co.domain ?? co.website}
+                    </a>
+                  )}
+                  {co.linkedin && (
+                    <>
+                      {co.website ? " · " : ""}
+                      <a href={co.linkedin} target="_blank" rel="noreferrer">
+                        LinkedIn de la empresa
+                      </a>
+                    </>
+                  )}
+                </div>
+              </>
+            ) : (
+              <span className="s">No se encontró información confiable de la empresa.</span>
+            )}
+          </div>
+          {p.sources.length > 0 && (
+            <div className="wide s">
+              Fuentes:{" "}
+              {p.sources.slice(0, 3).map((x, i) => (
+                <span key={x.url}>
+                  {i > 0 && " · "}
+                  <a href={x.url} target="_blank" rel="noreferrer">
+                    {x.title.slice(0, 50)}
+                  </a>
+                </span>
+              ))}
+              <span> · {p.queries} búsquedas</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReviewDialog({ c, onDone, onClose }: { c: Contact; onDone: (msg: string) => void; onClose: () => void }) {
+  const [manual, setManual] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const cands = c.linkedin_candidates ?? [];
+
+  async function choose(url: string | null) {
+    setBusy(true);
+    const err = await send(`/api/contacts/${c.id}/linkedin`, "POST", { url });
+    setBusy(false);
+    if (err) setError(err);
+    else onDone(url ? `Perfil confirmado para ${c.first_name}: ya puede continuar con ▶` : `${c.first_name} queda omitido`);
+  }
+
+  return (
+    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ width: "min(720px, 100%)" }}>
+        <h3>
+          ¿Cuál es el perfil de {c.first_name} {c.last_name}?
+        </h3>
+        <p className="s">
+          {c.title} · {c.company}. La búsqueda encontró estos perfiles públicos; confirma el correcto o descártalos.
+        </p>
+        {cands.length === 0 && <p className="s">No hay candidatos guardados. Puedes pegar la URL del perfil.</p>}
+        <div className="cands">
+          {cands.map((k) => (
+            <div key={k.url} className={`cand ${c.linkedin_url === k.url ? "on" : ""}`}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <b>{k.name}</b>{" "}
+                <span className={`badge ${k.confidence >= 0.65 ? "b-ok" : k.confidence >= 0.35 ? "b-warn" : "b-neutral"}`}>
+                  {Math.round(k.confidence * 100)}%
+                </span>
+                {k.origin === "sandbox" && <span className="s"> · sandbox</span>}
+                {k.headline && <div>{k.headline}</div>}
+                <div className="s">{k.snippet.slice(0, 200)}</div>
+                <div className="s">
+                  {k.reason} ·{" "}
+                  <a href={k.url} target="_blank" rel="noreferrer">
+                    abrir en LinkedIn
+                  </a>
+                </div>
+              </div>
+              <button className="sm" disabled={busy} onClick={() => choose(k.url)}>
+                Es esta persona
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="form" style={{ gridTemplateColumns: "1fr auto", alignItems: "end" }}>
+          <label>
+            <span>O pega la URL del perfil</span>
+            <input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="https://www.linkedin.com/in/…" />
+          </label>
+          <button className="sm" disabled={busy || !manual.trim()} onClick={() => choose(manual)}>
+            Usar esta URL
+          </button>
+        </div>
+        {error && (
+          <div className="err" style={{ marginTop: 12, marginBottom: 0 }}>
+            {error}
+          </div>
+        )}
+        <div className="actions">
+          <button className="danger" disabled={busy} onClick={() => choose(null)}>
+            Ninguno corresponde
+          </button>
+          <span style={{ flex: 1 }} />
+          <button onClick={onClose}>Cerrar</button>
+        </div>
+      </div>
     </div>
   );
 }

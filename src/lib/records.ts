@@ -33,6 +33,8 @@ const PIPELINE_RESET = {
   call_transcript: null,
   recording_url: null,
   qualification: null,
+  profile: null,
+  linkedin_candidates: null,
   locked_until: null,
 };
 

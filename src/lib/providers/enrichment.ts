@@ -2,7 +2,20 @@ import "server-only";
 import { db } from "../db";
 import { env } from "../env";
 import type { Contact } from "../types";
-import { toE164 } from "../util";
+import { parsePhoneNumberFromString } from "libphonenumber-js/max";
+import { fullName } from "../types";
+import { normalize, toE164 } from "../util";
+
+// Solo se llama a celulares válidos: evita gastar llamadas en fijos o números mal formados.
+export function checkMobile(raw: string | null | undefined): { phone: string } | { reason: string } {
+  const e164 = toE164(raw);
+  if (!e164) return { reason: "número mal formado" };
+  const p = parsePhoneNumberFromString(e164);
+  if (!p?.isValid()) return { reason: `número inválido (${e164})` };
+  const type = p.getType();
+  if (type && type !== "MOBILE" && type !== "FIXED_LINE_OR_MOBILE") return { reason: `no es celular (${type === "FIXED_LINE" ? "fijo" : type})` };
+  return { phone: p.number };
+}
 
 export type EnrichmentResult =
   | { kind: "found"; phone: string; email: string | null; source: string }
@@ -25,15 +38,17 @@ export async function enrichContact(contact: Contact): Promise<EnrichmentResult>
     return { kind: "pending", source: "signalhire" };
   }
 
-  const { data, error } = await db()
-    .from("sandbox_profiles")
-    .select("mobile_phone, email")
-    .eq("linkedin_url", contact.linkedin_url)
-    .maybeSingle();
+  // Por URL o, si el perfil vino de la búsqueda real, por nombre completo.
+  const { data, error } = await db().from("sandbox_profiles").select("full_name, linkedin_url, mobile_phone, email");
   if (error) throw new Error(`sandbox_profiles: ${error.message}`);
-  const phone = toE164(data?.mobile_phone);
-  if (!phone) return { kind: "not_found", reason: "el proveedor no tiene celular", source: "sandbox" };
-  return { kind: "found", phone, email: data?.email ?? null, source: "sandbox" };
+  const want = normalize(fullName(contact));
+  const row =
+    (data ?? []).find((p) => p.linkedin_url === contact.linkedin_url) ??
+    (data ?? []).find((p) => normalize(p.full_name) === want || normalize(p.full_name).startsWith(want) || want.startsWith(normalize(p.full_name)));
+  if (!row?.mobile_phone) return { kind: "not_found", reason: "el proveedor no tiene celular", source: "sandbox" };
+  const check = checkMobile(row.mobile_phone);
+  if ("reason" in check) return { kind: "not_found", reason: `celular descartado: ${check.reason}`, source: "sandbox" };
+  return { kind: "found", phone: check.phone, email: row.email ?? null, source: "sandbox" };
 }
 
 export function parseSignalHireItem(item: SignalHireCallbackItem): EnrichmentResult {
@@ -47,9 +62,10 @@ export function parseSignalHireItem(item: SignalHireCallbackItem): EnrichmentRes
     contacts.find((c) => c.type === "email" && /work/i.test(c.subType ?? ""))?.value ??
     contacts.find((c) => c.type === "email")?.value ??
     null;
-  const phone = toE164(mobile?.value);
-  if (!phone) return { kind: "not_found", reason: "SignalHire no devolvió celular", source: "signalhire" };
-  return { kind: "found", phone, email, source: "signalhire" };
+  if (!mobile) return { kind: "not_found", reason: "SignalHire no devolvió celular", source: "signalhire" };
+  const check = checkMobile(mobile.value);
+  if ("reason" in check) return { kind: "not_found", reason: `celular descartado: ${check.reason}`, source: "signalhire" };
+  return { kind: "found", phone: check.phone, email, source: "signalhire" };
 }
 
 export interface SignalHireCallbackItem {

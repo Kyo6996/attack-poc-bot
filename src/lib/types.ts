@@ -1,6 +1,7 @@
 export type ContactStatus =
   | "pending"
   | "linkedin_found"
+  | "needs_review"
   | "enriching"
   | "phone_found"
   | "calling"
@@ -22,6 +23,8 @@ export interface Contact {
   consent: boolean;
   event_notes: string | null;
   qualification: Qualification | null;
+  profile: Profile | null;
+  linkedin_candidates: LinkedInCandidate[] | null;
   linkedin_url: string | null;
   linkedin_confidence: number | null;
   linkedin_source: string | null;
@@ -49,6 +52,39 @@ export interface Qualification {
   celular?: string;
   referido?: string;
   notas?: string;
+}
+
+export interface LinkedInCandidate {
+  url: string;
+  name: string;
+  headline: string | null;
+  location: string | null;
+  snippet: string;
+  sources: { url: string; title: string }[];
+  confidence: number;
+  reason: string;
+  origin?: "serper" | "sandbox" | "manual";
+}
+
+export interface CompanyInfo {
+  name: string;
+  website: string | null;
+  domain: string | null;
+  description: string | null;
+  type: string | null;
+  linkedin: string | null;
+  attributes: Record<string, string> | null;
+}
+
+// Lo que se encontró en la web sobre la persona y su empresa.
+export interface Profile {
+  headline: string | null;
+  location: string | null;
+  summary: string | null;
+  sources: { url: string; title: string }[];
+  company: CompanyInfo | null;
+  searched_at: string;
+  queries: number;
 }
 
 export interface SalesRep {
