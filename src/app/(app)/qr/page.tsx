@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { PageHeader } from "@/app/ui";
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
 
@@ -49,26 +49,22 @@ export default function QrPage() {
   );
 
   return (
-    <div className="wrap">
-      <header className="top no-print">
-        <div>
-          <h1>
-            Formulario con QR <span>· Attack POC</span>
-          </h1>
-          <div className="sub">Imprime el afiche o las tarjetas: quien escanea deja sus datos y el bot inicia su ciclo</div>
-        </div>
-        <nav className="nav">
-          <Link className="btn" href="/">
-            ← Operación
-          </Link>
-          <a className="btn" href={url} target="_blank" rel="noreferrer">
-            Ver formulario
-          </a>
-          <button className="primary" onClick={() => window.print()}>
-            🖨 Imprimir
-          </button>
-        </nav>
-      </header>
+    <div className="page">
+      <PageHeader
+        eyebrow="Prospección"
+        title="Formulario QR"
+        subtitle="Imprime el afiche o las tarjetas: quien escanea deja sus datos y el bot inicia su ciclo"
+        actions={
+          <>
+            <a className="btn" href={url} target="_blank" rel="noreferrer">
+              Ver formulario
+            </a>
+            <button className="primary" onClick={() => window.print()}>
+              🖨 Imprimir
+            </button>
+          </>
+        }
+      />
 
       <section className="card pad no-print">
         <div className="btnrow" style={{ marginTop: 0 }}>

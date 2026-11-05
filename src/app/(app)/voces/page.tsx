@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { PageHeader } from "@/app/ui";
 import { useEffect, useRef, useState } from "react";
 import type { Contact } from "@/lib/types";
 import { VOICE_OPTIONS, type AgentVoice } from "@/lib/voices";
@@ -15,13 +15,6 @@ interface Line {
   role: "assistant" | "user";
   text: string;
 }
-
-const PRESETS = [
-  "¡Hola! ¿Hablo con Hans? Soy Sofía, del equipo que apoya a Attack. Te contacto porque estuviste con nosotros en ANDICOM.",
-  "Uy, qué buen proyecto. Tiene todo el sentido. ¿Y en qué etapa están: explorando, evaluando opciones o ya en ejecución?",
-  "Te entiendo perfectamente. Son solo quince minutos y lo agendamos cuando te quede cómodo. ¿Esta semana o la próxima?",
-  "¡Listo! Quedó agendada para mañana jueves a las nueve de la mañana. Te va a atender Carolina, y antes te escribe para conocer tu proyecto.",
-];
 
 export default function VocesPage() {
   const [saved, setSaved] = useState<AgentVoice | null>(null);
@@ -61,26 +54,11 @@ export default function VocesPage() {
   const dirty = JSON.stringify(saved) !== JSON.stringify(draft);
 
   return (
-    <div className="wrap">
-      <header className="top">
-        <div>
-          <h1>
-            Voces del agente <span>· Attack POC</span>
-          </h1>
-          <div className="sub">Elige cómo suena el agente en las llamadas, pruébalo en el navegador y compara con Chatterbox</div>
-        </div>
-        <nav className="nav">
-          <Link className="btn" href="/">
-            ← Operación
-          </Link>
-          <Link className="btn" href="/sla">
-            Desempeño y SLA
-          </Link>
-        </nav>
-      </header>
+    <div className="page">
+      <PageHeader eyebrow="Configuración" title="Voz del agente" subtitle="Elige cómo suena el agente en las llamadas y pruébalo desde el navegador" />
 
       <section className="card pad">
-        <h2 className="h">1 · Voz del agente en las llamadas</h2>
+        <h2 className="h">Voz para las llamadas</h2>
         {!draft ? (
           <p className="s">Cargando…</p>
         ) : (
@@ -152,8 +130,6 @@ export default function VocesPage() {
       </section>
 
       <BrowserTest contacts={contacts} disabled={dirty} />
-      <ChatterboxLab />
-      <LiveNumbers />
     </div>
   );
 }
@@ -204,7 +180,7 @@ function BrowserTest({ contacts, disabled }: { contacts: Contact[]; disabled: bo
 
   return (
     <section className="card pad">
-      <h2 className="h">2 · Probar el agente en el navegador</h2>
+      <h2 className="h">Probar el agente en el navegador</h2>
       <p className="s" style={{ marginTop: 0 }}>
         Habla con el agente usando tu micrófono, con la voz guardada y el guion de ANDICOM. No pasa por Twilio (solo consume créditos de Vapi) y no agenda
         de verdad: en esta prueba simula los horarios.
@@ -239,175 +215,6 @@ function BrowserTest({ contacts, disabled }: { contacts: Contact[]; disabled: bo
           ))}
         </div>
       )}
-    </section>
-  );
-}
-
-function ChatterboxLab() {
-  const [text, setText] = useState(PRESETS[0]);
-  const [exaggeration, setExaggeration] = useState(0.6);
-  const [cfg, setCfg] = useState(0.4);
-  const [temperature, setTemperature] = useState(0.8);
-  const [reference, setReference] = useState<{ name: string; data: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [clips, setClips] = useState<{ url: string; text: string; seconds: number; settings: string }[]>([]);
-
-  async function pickReference(f: File | undefined) {
-    if (!f) return;
-    if (f.size > 3_000_000) {
-      setError("El audio de referencia debe pesar menos de 3 MB (3 a 10 segundos es suficiente).");
-      return;
-    }
-    const data = await new Promise<string>((res) => {
-      const r = new FileReader();
-      r.onload = () => res(String(r.result));
-      r.readAsDataURL(f);
-    });
-    setReference({ name: f.name, data });
-  }
-
-  async function generate() {
-    setBusy(true);
-    setError("");
-    try {
-      const res = await fetch("/api/voice/chatterbox", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, exaggeration, cfg, temperature, reference: reference?.data ?? null }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
-      setClips((c) => [
-        { url: json.url, text, seconds: json.seconds, settings: `expresividad ${exaggeration} · cfg ${cfg} · temp ${temperature}${reference ? " · voz clonada" : ""}` },
-        ...c,
-      ]);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <section className="card pad">
-      <h2 className="h">3 · Laboratorio Chatterbox (Resemble AI)</h2>
-      <p className="s" style={{ marginTop: 0 }}>
-        Modelo abierto <b>Chatterbox Multilingual</b> en español, alojado en Replicate. Sirve para comparar cómo suena. Para usarlo en llamadas en vivo
-        haría falta un servidor con GPU: hoy tarda unos segundos por frase. Las etiquetas de suspiros y risas (<span className="mono">[sigh]</span>,{" "}
-        <span className="mono">[laugh]</span>) solo existen en sus versiones en inglés; en español la emoción se controla con la expresividad.
-      </p>
-      <div className="btnrow">
-        {PRESETS.map((p, i) => (
-          <button key={i} className="sm" onClick={() => setText(p)}>
-            Frase {i + 1}
-          </button>
-        ))}
-      </div>
-      <div className="form">
-        <label className="wide">
-          <span>Texto ({text.length}/300)</span>
-          <textarea rows={3} maxLength={300} value={text} onChange={(e) => setText(e.target.value)} />
-        </label>
-        <label>
-          <span>Expresividad: {exaggeration}</span>
-          <input type="range" min={0.25} max={1.5} step={0.05} value={exaggeration} onChange={(e) => setExaggeration(Number(e.target.value))} />
-          <small className="s">0,5 neutral · más alto = más emoción</small>
-        </label>
-        <label>
-          <span>Ritmo (cfg): {cfg}</span>
-          <input type="range" min={0.2} max={1} step={0.05} value={cfg} onChange={(e) => setCfg(Number(e.target.value))} />
-          <small className="s">más bajo = más pausado y natural</small>
-        </label>
-        <label>
-          <span>Variación (temperatura): {temperature}</span>
-          <input type="range" min={0.3} max={1.5} step={0.05} value={temperature} onChange={(e) => setTemperature(Number(e.target.value))} />
-        </label>
-        <label>
-          <span>Clonar una voz (opcional)</span>
-          <input type="file" accept="audio/*" onChange={(e) => pickReference(e.target.files?.[0])} />
-          <small className="s">{reference ? `Usando ${reference.name}` : "3 a 10 segundos de audio limpio. Solo voces con permiso de su dueño."}</small>
-        </label>
-      </div>
-      <div className="btnrow" style={{ marginTop: 12 }}>
-        <button className="primary" onClick={generate} disabled={busy || !text.trim()}>
-          {busy ? "Generando… (unos segundos)" : "▶ Generar y escuchar"}
-        </button>
-        {reference && (
-          <button className="sm" onClick={() => setReference(null)}>
-            Quitar voz clonada
-          </button>
-        )}
-      </div>
-      {error && <div className="err" style={{ marginTop: 10 }}>{error}</div>}
-      {clips.map((c, i) => (
-        <div key={c.url + i} className="clip">
-          <audio controls src={c.url} autoPlay={i === 0} />
-          <div>
-            <div>{c.text}</div>
-            <div className="s">
-              {c.settings} · generado en {c.seconds} s
-            </div>
-          </div>
-        </div>
-      ))}
-    </section>
-  );
-}
-
-function LiveNumbers() {
-  const [numbers, setNumbers] = useState<string[] | null>(null);
-  const [input, setInput] = useState("");
-  const [msg, setMsg] = useState("");
-
-  const load = () =>
-    fetch("/api/settings", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => setNumbers(j.live_numbers ?? []));
-  useEffect(() => {
-    load();
-  }, []);
-
-  async function update(body: Record<string, string>) {
-    const res = await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const json = await res.json();
-    if (!res.ok) setMsg(json.error);
-    else {
-      setNumbers(json.live_numbers);
-      setMsg("Lista actualizada");
-      setInput("");
-    }
-  }
-
-  return (
-    <section className="card pad">
-      <h2 className="h">4 · Números autorizados para llamada real</h2>
-      <p className="s" style={{ marginTop: 0 }}>
-        Solo estos números reciben una llamada real; al resto el bot los llama en modo simulado. Agrega únicamente números de personas que dieron su
-        consentimiento (Ley 1581). También puedes autorizarlos desde el detalle de cada contacto.
-      </p>
-      {numbers === null ? (
-        <p className="s">Cargando…</p>
-      ) : (
-        <ul className="list">
-          {numbers.length === 0 && <li className="s">Ninguno: todas las llamadas son simuladas.</li>}
-          {numbers.map((n) => (
-            <li key={n} className="mono">
-              {n}{" "}
-              <button className="sm" onClick={() => update({ revoke: n })}>
-                Quitar
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="btnrow">
-        <input className="inline-input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="+57 300 000 0000" />
-        <button className="sm" disabled={!input.trim()} onClick={() => update({ authorize: input })}>
-          Autorizar número
-        </button>
-        <span className="msg">{msg}</span>
-      </div>
     </section>
   );
 }

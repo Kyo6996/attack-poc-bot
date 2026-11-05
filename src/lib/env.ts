@@ -11,7 +11,7 @@ function req(name: string): string {
   return v;
 }
 
-export type LinkedInProvider = "sandbox" | "serper";
+export type LinkedInProvider = "sandbox" | "serper" | "hybrid";
 export type EnrichmentProvider = "sandbox" | "signalhire";
 export type VoiceProvider = "simulated" | "vapi";
 export type CalendarProvider = "sandbox" | "google";
@@ -57,7 +57,6 @@ export const env = {
       .map((n) => toE164(n))
       .filter((n): n is string => !!n),
   vapiPublicKey: () => opt("VAPI_PUBLIC_KEY"),
-  replicateToken: () => opt("REPLICATE_API_TOKEN"),
   vapiModelProvider: () => opt("VAPI_MODEL_PROVIDER") ?? "openai",
   vapiModel: () => opt("VAPI_MODEL") ?? "gpt-4o",
   vapiVoiceProvider: () => opt("VAPI_VOICE_PROVIDER") ?? "azure",

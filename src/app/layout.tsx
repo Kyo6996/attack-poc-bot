@@ -1,14 +1,17 @@
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
 
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
+
 export const metadata: Metadata = {
-  title: "Bot de prospección · Attack POC",
-  description: "LinkedIn → enriquecimiento → llamada de voz con IA → reunión agendada",
+  title: "Capricorne Project",
+  description: "Prospección con IA: LinkedIn, enriquecimiento, llamada de voz y agenda",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es">
+    <html lang="es" className={inter.variable}>
       <body>{children}</body>
     </html>
   );

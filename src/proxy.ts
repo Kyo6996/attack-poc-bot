@@ -1,21 +1,27 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { readSession, SESSION_COOKIE } from "@/lib/session";
 
-// Los webhooks quedan fuera porque se validan con WEBHOOK_SECRET.
-export function proxy(req: NextRequest) {
+// Panel protegido por sesión (login). Los webhooks y las páginas públicas quedan fuera del matcher.
+// La cabecera Basic con la clave del panel sigue sirviendo para scripts y pruebas automáticas.
+export async function proxy(req: NextRequest) {
   const password = process.env.DASHBOARD_PASSWORD;
   if (!password) return NextResponse.next();
+  const { pathname, search } = req.nextUrl;
+  if (pathname === "/login" || pathname.startsWith("/api/auth/")) return NextResponse.next();
 
+  if (await readSession(req.cookies.get(SESSION_COOKIE)?.value)) return NextResponse.next();
   const auth = req.headers.get("authorization");
   if (auth?.startsWith("Basic ")) {
     const [, pass] = atob(auth.slice(6)).split(":");
     if (pass === password) return NextResponse.next();
   }
-  return new NextResponse("Autenticación requerida", {
-    status: 401,
-    headers: { "WWW-Authenticate": 'Basic realm="Attack POC"' },
-  });
+
+  if (pathname.startsWith("/api/")) return NextResponse.json({ error: "Sesión requerida" }, { status: 401 });
+  const login = new URL("/login", req.url);
+  if (pathname !== "/") login.searchParams.set("next", pathname + search);
+  return NextResponse.redirect(login);
 }
 
 export const config = {
-  matcher: ["/((?!api/webhooks|api/public|agendar|registro|email/|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!api/webhooks|api/public|agendar|registro|email/|voces/|_next/static|_next/image|favicon.ico|icon.svg).*)"],
 };

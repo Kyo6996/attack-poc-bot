@@ -1,11 +1,11 @@
 "use client";
 
-import Link from "next/link";
+import { PageHeader } from "@/app/ui";
 import { useCallback, useEffect, useState } from "react";
 import type { Stats } from "@/lib/stats";
 import type { CallRow, Contact } from "@/lib/types";
-import { Tile } from "../stats";
-import { exportSlaReport } from "../xlsx";
+import { Tile } from "@/app/stats";
+import { exportSlaReport } from "@/app/xlsx";
 import { ChartCard, FirstCallBars, Funnel, HourlyStacked, SlaBar } from "./charts";
 
 interface Data {
@@ -52,25 +52,17 @@ export default function SlaPage() {
 
   const s = data?.stats;
   return (
-    <div className="wrap">
-      <header className="top">
-        <div>
-          <h1>
-            Desempeño y SLA <span>· Attack POC</span>
-          </h1>
-          <div className="sub">
-            Ventana de {s?.windowHours ?? 24} h · meta: primer intento de llamada antes de {s?.windowHours ?? 24} h desde que el contacto se carga
-          </div>
-        </div>
-        <nav className="nav">
-          <Link className="btn" href="/">
-            ← Operación
-          </Link>
+    <div className="page">
+      <PageHeader
+        eyebrow="Análisis"
+        title="Desempeño y SLA"
+        subtitle={`Ventana de ${s?.windowHours ?? 24} h · meta: primer intento de llamada antes de ${s?.windowHours ?? 24} h desde que el contacto se carga`}
+        actions={
           <button className="primary" onClick={download} disabled={!data || busy}>
             ⬇ Descargar reporte (.xlsx)
           </button>
-        </nav>
-      </header>
+        }
+      />
       {msg && <p className="msg">{msg}</p>}
 
       {!s ? (

@@ -1,12 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { Stats } from "@/lib/stats";
 import type { CallRow, Contact, ContactStatus, EmailKind, EmailRow, EventRow, Meeting, SalesRep, SandboxProfile } from "@/lib/types";
 import { maskEmail, maskPhone } from "@/lib/util";
 import { provenanceRows } from "@/lib/provenance";
 import { Editor, type Field } from "./editor";
+import { PageHeader } from "./ui";
 import { downloadTemplate, exportContacts, xlsxToCsv } from "./xlsx";
 
 interface State {
@@ -22,7 +22,7 @@ interface State {
   providers: Record<string, string>;
 }
 
-type Tab = "contacts" | "agenda" | "reps" | "sandbox";
+export type Section = "contacts" | "agenda" | "reps" | "sandbox" | "activity";
 type Editing =
   | { kind: "contact"; row: Partial<Contact> }
   | { kind: "sandbox"; row: Partial<SandboxProfile> }
@@ -95,14 +95,6 @@ const REP_FORM: Field[] = [
   { name: "active", label: "Activo (recibe nuevas reuniones)", type: "checkbox", wide: true },
 ];
 
-const PROVIDER_LABEL: Record<string, string> = {
-  linkedin: "LinkedIn",
-  enrichment: "Enriquecimiento",
-  voice: "Voz",
-  calendar: "Calendario",
-  email: "Correo",
-};
-const SANDBOX = ["sandbox", "simulated"];
 const RUNNABLE: ContactStatus[] = ["pending", "linkedin_found", "phone_found"];
 
 const tz = { timeZone: "America/Bogota" } as const;
@@ -129,14 +121,14 @@ async function send(url: string, method: string, body?: unknown): Promise<string
   return json.error ?? `Error ${res.status}`;
 }
 
-export default function Dashboard() {
+export function Dashboard({ section }: { section: Section }) {
   const [state, setState] = useState<State | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [auto, setAuto] = useState(false);
   const [msg, setMsg] = useState("");
   const [open, setOpen] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("contacts");
+  const tab = section;
   const [editing, setEditing] = useState<Editing>(null);
   const [reviewing, setReviewing] = useState<Contact | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -219,12 +211,6 @@ export default function Dashboard() {
     return () => clearInterval(t);
   }, [auto, busy, run]);
 
-  async function reset() {
-    if (!confirm("¿Reiniciar la demo? Se borran reuniones, correos, llamadas y bitácora, y todos los contactos vuelven a 'Pendiente'.")) return;
-    await fetch("/api/demo/reset", { method: "POST" });
-    setMsg("Demo reiniciada");
-    load();
-  }
 
   async function reprocess(c: Contact) {
     const err = await send(`/api/contacts/${c.id}`, "PATCH", { reprocess: true });
@@ -239,12 +225,6 @@ export default function Dashboard() {
     load();
   }
 
-  async function toggleLiveCalls() {
-    const next = !state?.settings?.live_calls;
-    const err = await send("/api/settings", "POST", { live_calls: next });
-    setMsg(err ?? (next ? "Llamadas reales activadas" : "Llamadas reales desactivadas: el bot simula las llamadas"));
-    load();
-  }
 
   async function runExport(kind: "base" | "plantilla") {
     try {
@@ -312,120 +292,96 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="wrap">
-      <header className="top">
-        <div>
-          <h1>
-            Bot de prospección <span>· Attack POC</span>
-          </h1>
-          <div className="sub">LinkedIn → enriquecimiento → llamada de voz con IA → reunión agendada</div>
-        </div>
-        <div className="chips">
-          <Link className="btn sm" href="/qr">
-            Formulario QR
-          </Link>
-          <Link className="btn sm" href="/voces">
-            Voces del agente
-          </Link>
-          <Link className="btn sm" href="/sla">
-            Desempeño y SLA →
-          </Link>
-          {state &&
-            Object.entries(state.providers).map(([k, v]) => (
-              <span key={k} className={`chip ${SANDBOX.includes(v) ? "" : "live"}`}>
-                {PROVIDER_LABEL[k] ?? k}: <b>{v}</b>
-              </span>
-            ))}
-        </div>
-      </header>
+    <div className="page">
+      {tab === "contacts" && (
+        <PageHeader
+          eyebrow="Prospección"
+          title="Contactos"
+          subtitle="LinkedIn → enriquecimiento → llamada de voz con IA → reunión agendada"
+          actions={
+            <>
+              <details className="menu">
+                <summary className="btn">Base de clientes ▾</summary>
+                <div className="menu-list">
+                  <button onClick={() => runExport("base")}>⬇ Descargar base (.xlsx)</button>
+                  <button onClick={() => fileRef.current?.click()}>⬆ Importar (.xlsx o .csv)</button>
+                  <button onClick={() => runExport("plantilla")}>Plantilla de importación</button>
+                </div>
+              </details>
+              <button className={auto ? "on" : ""} onClick={() => setAuto((a) => !a)} title="Ejecuta el pipeline cada 8 segundos">
+                {auto ? "● Automático" : "Automático"}
+              </button>
+              <button onClick={() => setEditing({ kind: "contact", row: { consent: true } })}>+ Nuevo contacto</button>
+              <button className="primary" onClick={() => run()} disabled={busy}>
+                ▶ Ejecutar pipeline
+              </button>
+            </>
+          }
+        />
+      )}
+      {tab === "agenda" && <PageHeader eyebrow="Prospección" title="Agenda" subtitle="Reuniones agendadas por el bot, con su comercial, Meet e invitaciones" />}
+      {tab === "activity" && <PageHeader eyebrow="Prospección" title="Bitácora" subtitle="Cada paso del bot en tiempo real: búsquedas, llamadas, agenda y correos" />}
+      {tab === "reps" && (
+        <PageHeader
+          eyebrow="Equipo"
+          title="Comerciales"
+          subtitle="Cada reunión se asigna al comercial activo del área con menos reuniones próximas"
+          actions={
+            <button className="primary" onClick={() => setEditing({ kind: "rep", row: { area: "infraestructura", active: true } })}>
+              + Nuevo comercial
+            </button>
+          }
+        />
+      )}
+      {tab === "sandbox" && (
+        <PageHeader
+          eyebrow="Configuración"
+          title="Datos sandbox"
+          subtitle="Lo que LinkedIn y SignalHire saben de cada persona cuando esos pasos están en modo de prueba"
+          actions={
+            <button className="primary" onClick={() => setEditing({ kind: "sandbox", row: { mock_call_outcome: "accept" } })}>
+              + Nuevo perfil
+            </button>
+          }
+        />
+      )}
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) importFile(f);
+          e.target.value = "";
+        }}
+      />
 
-      {error && (
-        <div className="err">
-          {error}. Revisa las variables de entorno y que hayas corrido las migraciones en Supabase.
+      {error && <div className="err">{error}. Revisa las variables de entorno y que hayas corrido las migraciones en Supabase.</div>}
+      {msg && <div className="toast" onClick={() => setMsg("")}>{msg}</div>}
+
+      {tab === "contacts" && (
+        <div className="kpis">
+          <Kpi n={contacts.length} l="Contactos" />
+          <Kpi n={count((c) => !!c.linkedin_url)} l="Con LinkedIn" />
+          <Kpi n={count((c) => !!c.phone)} l="Con teléfono" />
+          <Kpi n={count((c) => !!c.call_id)} l="Llamados" />
+          <Kpi n={meetings.length} l="Reuniones" accent />
+          <Kpi n={count((c) => c.status === "needs_review")} l="Por revisar" />
+          <Kpi n={count((c) => c.status === "skipped")} l="Omitidos" />
         </div>
       )}
 
-      <div className="kpis">
-        <Kpi n={contacts.length} l="Contactos" />
-        <Kpi n={count((c) => !!c.linkedin_url)} l="Perfil de LinkedIn ubicado" />
-        <Kpi n={count((c) => !!c.phone)} l="Con celular" />
-        <Kpi n={count((c) => !!c.call_id)} l="Llamados" />
-        <Kpi n={meetings.length} l="Reuniones agendadas" />
-        <Kpi n={count((c) => c.status === "needs_review")} l="Por revisar" />
-        <Kpi n={count((c) => c.status === "skipped")} l="Omitidos" />
-      </div>
-
-      <div className="bar">
-        <button className="primary" onClick={() => run()} disabled={busy}>
-          ▶ Ejecutar pipeline
-        </button>
-        <button className={auto ? "on" : ""} onClick={() => setAuto((a) => !a)}>
-          {auto ? "● Automático activo" : "Automático"}
-        </button>
-        <details className="menu">
-          <summary className="btn">Base de clientes ▾</summary>
-          <div className="menu-list">
-            <button onClick={() => runExport("base")}>⬇ Descargar base (.xlsx)</button>
-            <button onClick={() => fileRef.current?.click()}>⬆ Importar (.xlsx o .csv)</button>
-            <button onClick={() => runExport("plantilla")}>Plantilla de importación</button>
-          </div>
-        </details>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          hidden
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) importFile(f);
-            e.target.value = "";
-          }}
-        />
-        <button onClick={reset}>Reiniciar demo</button>
-        {state?.providers.voice === "vapi" && (
-          <button className={state.settings?.live_calls ? "on" : ""} onClick={toggleLiveCalls} title="Desactívalo para probar sin gastar saldo de Twilio/Vapi">
-            {state.settings?.live_calls ? "📞 Llamadas reales: sí" : "📞 Llamadas reales: no (simuladas)"}
-          </button>
-        )}
-        <span className="msg">{msg}</span>
-      </div>
-
-      <div className="grid">
-        <section className="card">
+      <div className={tab === "contacts" ? "grid" : "single"}>
+        {tab !== "activity" && <section className="card">
           <div className="cardhead">
-            <div className="tabs">
-              {(
-                [
-                  ["contacts", "Contactos", contacts.length],
-                  ["agenda", "Agenda", meetings.length],
-                  ["reps", "Comerciales", reps.length],
-                  ["sandbox", "Datos sandbox", sandbox.length],
-                ] as [Tab, string, number][]
-              ).map(([k, label, n]) => (
-                <button key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>
-                  {label} <span className="s">{n}</span>
-                </button>
-              ))}
+            <div className="card-title">
+              {{ contacts: "Base de contactos", agenda: "Próximas reuniones", reps: "Equipo comercial", sandbox: "Perfiles de prueba", activity: "" }[tab]}
+              <span className="count">{{ contacts: contacts.length, agenda: meetings.length, reps: reps.length, sandbox: sandbox.length, activity: 0 }[tab]}</span>
             </div>
             {tab === "contacts" && selected.size > 0 && (
               <button className="sm danger" onClick={bulkDelete}>
                 Eliminar seleccionados ({selected.size})
-              </button>
-            )}
-            {tab !== "agenda" && (
-              <button
-                className="sm"
-                onClick={() =>
-                  setEditing(
-                    tab === "contacts"
-                      ? { kind: "contact", row: { consent: true } }
-                      : tab === "reps"
-                        ? { kind: "rep", row: { area: "infraestructura", active: true } }
-                        : { kind: "sandbox", row: { mock_call_outcome: "accept" } },
-                  )
-                }
-              >
-                + Nuevo
               </button>
             )}
           </div>
@@ -819,11 +775,11 @@ export default function Dashboard() {
               </div>
             </>
           )}
-        </section>
+        </section>}
 
-        <aside className="card">
-          <h2>Bitácora en vivo</h2>
-          <div className="log">
+        {(tab === "contacts" || tab === "activity") && <aside className={tab === "activity" ? "card" : "card side-log"}>
+          <h2>{tab === "activity" ? "Eventos" : "Actividad en vivo"}</h2>
+          <div className={tab === "activity" ? "log full" : "log"}>
             {(state?.events ?? []).map((e) => (
               <div key={e.id} className={`ev ${e.level}`}>
                 <span className="t">{fmtTime(e.created_at)}</span>
@@ -833,7 +789,7 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
-        </aside>
+        </aside>}
       </div>
 
       {editing?.kind === "contact" && (
@@ -962,9 +918,9 @@ function MeetingCard({ m, rep, chip, onResend }: { m: Meeting; rep?: SalesRep; c
   );
 }
 
-function Kpi({ n, l }: { n: number; l: string }) {
+function Kpi({ n, l, accent }: { n: number; l: string; accent?: boolean }) {
   return (
-    <div className="kpi">
+    <div className={accent ? "kpi accent" : "kpi"}>
       <div className="n">{n}</div>
       <div className="l">{l}</div>
     </div>

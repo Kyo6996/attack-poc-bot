@@ -1,4 +1,4 @@
-# Bot de prospección · Attack POC
+# Capricorne Project · bot de prospección (Attack POC)
 
 Toma una base de personas (nombre, apellidos, empresa, cargo…) y, por cada una:
 
