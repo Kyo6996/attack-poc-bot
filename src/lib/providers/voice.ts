@@ -7,7 +7,7 @@ import { buildSystemPrompt, firstMessage } from "../script";
 import { getSettings } from "../settings";
 import { spokenSlot } from "../speech";
 import type { Contact } from "../types";
-import type { AgentVoice } from "../voices";
+import { vapiVoice, type AgentVoice } from "../voices";
 import { maskPhone } from "../util";
 import { getAvailableSlots } from "./calendar";
 
@@ -142,7 +142,7 @@ export function buildAssistant(contact: Contact, voice: AgentVoice, mode: "call"
       messages: [{ role: "system", content: buildSystemPrompt(contact, voice.agentName) + (mode === "preview" ? DEMO_NOTE : "") }],
       tools: mode === "call" ? VAPI_TOOLS : [{ type: "endCall" }],
     },
-    voice: { provider: voice.provider, voiceId: voice.voiceId, speed: voice.speed },
+    voice: vapiVoice(voice),
     transcriber: { provider: "deepgram", model: "nova-3", language: "es" },
     backgroundSound: "office",
     startSpeakingPlan: { waitSeconds: 0.6, smartEndpointingEnabled: true },

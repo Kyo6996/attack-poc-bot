@@ -85,24 +85,34 @@ export default function VocesPage() {
           <p className="s">Cargando…</p>
         ) : (
           <>
+            {(["ElevenLabs", "Azure"] as const).map((group) => (
+              <div key={group}>
+                <div className="voice-group">
+                  {group === "ElevenLabs" ? "ElevenLabs · más naturales (escucha la muestra de cada voz)" : "Azure · voces actuales"}
+                </div>
+                <div className="voice-grid">
+                  {VOICE_OPTIONS.filter((o) => o.group === group).map((o) => {
+                    const on = !custom && draft.voiceId === o.voiceId && draft.provider === o.provider;
+                    return (
+                      <div key={o.id} className={on ? "voice on" : "voice"}>
+                        <button
+                          className="voice-pick"
+                          onClick={() => {
+                            setCustom(false);
+                            setDraft({ ...draft, provider: o.provider, voiceId: o.voiceId, agentName: o.agentName, model: o.model });
+                          }}
+                        >
+                          <b>{o.label}</b>
+                          <span className="s">{o.accent}</span>
+                        </button>
+                        {o.sample && <SamplePlayer src={o.sample} />}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
             <div className="voice-grid">
-              {VOICE_OPTIONS.map((o) => {
-                const on = !custom && draft.voiceId === o.voiceId && draft.provider === o.provider;
-                return (
-                  <button
-                    key={o.id}
-                    className={on ? "voice on" : "voice"}
-                    onClick={() => {
-                      setCustom(false);
-                      setDraft({ ...draft, provider: o.provider, voiceId: o.voiceId, agentName: o.agentName });
-                    }}
-                  >
-                    <b>{o.label}</b>
-                    <span className="s">{o.accent}</span>
-                    <span className="s mono">{o.voiceId}</span>
-                  </button>
-                );
-              })}
               <button className={custom ? "voice on" : "voice"} onClick={() => setCustom(true)}>
                 <b>Otra voz</b>
                 <span className="s">ElevenLabs, Cartesia, Vapi…</span>
@@ -399,5 +409,30 @@ function LiveNumbers() {
         <span className="msg">{msg}</span>
       </div>
     </section>
+  );
+}
+
+function SamplePlayer({ src }: { src: string }) {
+  const ref = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  return (
+    <>
+      <button
+        className="sm sample-btn"
+        onClick={() => {
+          const a = ref.current;
+          if (!a) return;
+          if (playing) a.pause();
+          else {
+            document.querySelectorAll("audio").forEach((x) => x !== a && x.pause());
+            a.currentTime = 0;
+            a.play();
+          }
+        }}
+      >
+        {playing ? "■ Detener" : "▶ Escuchar muestra"}
+      </button>
+      <audio ref={ref} src={src} preload="none" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} />
+    </>
   );
 }

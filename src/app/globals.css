@@ -322,3 +322,8 @@ button.sm.on { border-color: var(--accent); color: var(--accent); }
 .prov summary { cursor: pointer; }
 .prov table { margin-top: 8px; font-size: 13px; }
 .prov th, .prov td { padding: 6px 8px; }
+
+.voice-group { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 4px 0 8px; }
+.voice { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+.voice-pick { border: 0; background: none; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 0; width: 100%; }
+.sample-btn { margin-top: 8px; }

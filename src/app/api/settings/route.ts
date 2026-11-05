@@ -3,7 +3,7 @@ import { logEvent } from "@/lib/db";
 import { env } from "@/lib/env";
 import { getSettings, setSetting } from "@/lib/settings";
 import { toE164 } from "@/lib/util";
-import type { AgentVoice } from "@/lib/voices";
+import { vapiVoice, type AgentVoice } from "@/lib/voices";
 
 export async function GET() {
   return NextResponse.json(await getSettings());
@@ -17,7 +17,7 @@ async function validateVoice(v: AgentVoice) {
     body: JSON.stringify({
       name: "validacion-voz",
       model: { provider: "openai", model: "gpt-4o", messages: [{ role: "system", content: "x" }] },
-      voice: { provider: v.provider, voiceId: v.voiceId, speed: v.speed },
+      voice: vapiVoice(v),
     }),
   });
   const json = (await res.json()) as { id?: string; message?: string | string[] };
@@ -55,6 +55,7 @@ export async function POST(req: NextRequest) {
         voiceId: v.voiceId.trim(),
         speed: Math.min(1.3, Math.max(0.7, Number(v.speed ?? 0.95))),
         agentName: (v.agentName ?? "Sofía").trim() || "Sofía",
+        ...(v.model ? { model: v.model } : {}),
       };
       await validateVoice(voice);
       await setSetting("agent_voice", voice);
