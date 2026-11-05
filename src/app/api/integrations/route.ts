@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { env } from "@/lib/env";
+import { signalHireCredits } from "@/lib/providers/signalhire";
 import { getSettings } from "@/lib/settings";
 
 type Status = "activo" | "prueba" | "inactivo";
@@ -20,9 +21,11 @@ export async function GET() {
     { name: "Hunter", purpose: "Correo profesional por nombre y dominio", status: has("HUNTER_API_KEY") ? "activo" : "inactivo", detail: "Solo si falta el correo" },
     {
       name: "SignalHire",
-      purpose: "Celular personal",
-      status: p.enrichment === "signalhire" && has("SIGNALHIRE_API_KEY") ? "activo" : "prueba",
-      detail: p.enrichment === "signalhire" ? "Real" : "Datos de prueba + teléfono público de la empresa",
+      purpose: "Historial laboral y habilidades (gratis) · celular y correo (con crédito, solo manual)",
+      status: has("SIGNALHIRE_API_KEY") ? "activo" : "inactivo",
+      detail: has("SIGNALHIRE_API_KEY")
+        ? `Búsqueda gratuita automática · ${(await signalHireCredits()) ?? "?"} crédito(s) para revelar desde el detalle`
+        : "Sin configurar",
     },
     { name: "Claude (Anthropic)", purpose: "Desambiguar homónimos en LinkedIn", status: has("ANTHROPIC_API_KEY") ? "activo" : "inactivo", detail: "Opcional" },
     {

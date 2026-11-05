@@ -111,6 +111,7 @@ export interface Profile {
   phones?: ContactPhone[];
   email?: { value: string; score: number; status: string | null; source: string };
   provenance?: Record<string, Provenance>;
+  signalhire?: SignalHireInfo;
   searched_at: string;
   queries: number;
 }
@@ -192,3 +193,30 @@ export interface EventRow {
 
 export const fullName = (c: Pick<Contact, "first_name" | "last_name">) =>
   `${c.first_name} ${c.last_name}`.trim();
+
+export interface SignalHireProfile {
+  uid: string;
+  fullName: string;
+  location: string | null;
+  experience: { company: string; title: string }[];
+  skills: string[];
+  contactsFetched: string | null;
+  openToWork: boolean;
+  score?: number;
+}
+
+// Lo que SignalHire aporta gratis (búsqueda) y, si se autoriza, los contactos revelados con crédito.
+export interface SignalHireInfo {
+  searched_at: string;
+  total: number;
+  best: SignalHireProfile | null;
+  others: SignalHireProfile[];
+  error?: string;
+  reveal?: {
+    requested_at: string;
+    status: "pendiente" | "listo" | "sin datos";
+    phones?: { value: string; subType?: string | null }[];
+    emails?: { value: string; subType?: string | null }[];
+    received_at?: string;
+  };
+}

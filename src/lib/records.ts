@@ -115,7 +115,12 @@ export async function resetContact(id: string, reason: string) {
   // Se conserva la procedencia de lo que vino de la base o se editó a mano; lo del bot se vuelve a buscar.
   const prov = (data?.profile as Profile | null)?.provenance ?? {};
   const keptProv = Object.fromEntries(Object.entries(prov).filter(([k]) => (CONTACT_FIELDS.includes(k) && k !== "phone") || (k === "phone" && manual)));
-  const profile = Object.keys(keptProv).length ? { ...withProvenance(null, {}), provenance: keptProv } : null;
+  // Los contactos revelados con crédito de SignalHire también se conservan.
+  const prev = data?.profile as Profile | null;
+  const paid = prev?.signalhire?.reveal
+    ? { signalhire: prev.signalhire, phones: (prev.phones ?? []).filter((p) => p.source.startsWith("SignalHire")) }
+    : {};
+  const profile = Object.keys(keptProv).length || prev?.signalhire?.reveal ? { ...withProvenance(null, {}), provenance: keptProv, ...paid } : null;
   const { error } = await db().from("contacts").update({ ...PIPELINE_RESET, ...keep, profile }).eq("id", id);
   if (error) throw new Error(error.message);
   await logEvent(id, "system", `Vuelve a pendiente: ${reason}`);

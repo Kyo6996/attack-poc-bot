@@ -5,8 +5,9 @@ import { env } from "./env";
 import { enrichContact, webPhone, type EnrichmentResult } from "./providers/enrichment";
 import { findWorkEmail, MIN_SCORE } from "./providers/hunter";
 import { findLinkedInProfile } from "./providers/linkedin";
+import { searchSignalHire, signalHireEnabled } from "./providers/signalhire";
 import { startCall } from "./providers/voice";
-import { fullName, type Contact, type ContactStatus } from "./types";
+import { fullName, type Contact, type ContactStatus, type SignalHireInfo } from "./types";
 import { maskPhone } from "./util";
 import { withProvenance } from "./provenance";
 
@@ -60,7 +61,15 @@ export async function advanceContact(c: Contact, opts: { allowCall: boolean }): 
     if (contact.status === "pending") {
       await logEvent(contact.id, "linkedin", `Buscando perfil de ${fullName(contact)} (${env.providers.linkedin})`);
       const r = await findLinkedInProfile(contact);
-      const fill = fillFromProfile(contact, r.best?.headline ?? null, r.profile.location);
+      const sh = await signalHireFree(contact);
+      // LinkedIn manda; SignalHire (gratis) completa lo que aún falte.
+      const liFill = fillFromProfile(contact, r.best?.headline ?? null, r.profile.location);
+      const shJob = sh?.best?.experience?.[0];
+      const shFill: Partial<Contact> = {
+        ...(!contact.title && !liFill.title && shJob?.title ? { title: shJob.title.slice(0, 80) } : {}),
+        ...(!contact.city && !liFill.city && sh?.best?.location ? { city: sh.best.location.split(",")[0].trim() } : {}),
+      };
+      const fill = { ...liFill, ...shFill };
       const liUrl = r.best?.sources[0]?.url ?? r.best?.url ?? null;
       r.profile = withProvenance({ ...r.profile, provenance: contact.profile?.provenance }, {
         ...(r.best
@@ -72,8 +81,15 @@ export async function advanceContact(c: Contact, opts: { allowCall: boolean }): 
               },
             }
           : {}),
-        ...Object.fromEntries(Object.keys(fill).map((k) => [k, { source: "Perfil público de LinkedIn (Google)", url: liUrl }])),
+        ...Object.fromEntries(Object.keys(liFill).map((k) => [k, { source: "Perfil público de LinkedIn (Google)", url: liUrl }])),
+        ...Object.fromEntries(Object.keys(shFill).map((k) => [k, { source: "SignalHire (búsqueda gratuita)", detail: sh?.best?.uid ?? null }])),
       });
+      // Lo revelado con crédito nunca se pierde al volver a buscar.
+      const prevReveal = contact.profile?.signalhire?.reveal;
+      if (sh && prevReveal) sh.reveal = prevReveal;
+      r.profile.signalhire = sh ?? contact.profile?.signalhire;
+      const paidPhones = (contact.profile?.phones ?? []).filter((p) => p.source.startsWith("SignalHire"));
+      if (paidPhones.length) r.profile.phones = [...(r.profile.phones ?? []), ...paidPhones.filter((p) => !(r.profile.phones ?? []).some((x) => x.value === p.value))];
 
       if (r.decision === "review" && contact.phone && isManualPhone(contact.enrichment_source)) {
         // Con teléfono registrado a mano la duda sobre LinkedIn no frena la llamada; el perfil se puede elegir después.
@@ -245,4 +261,25 @@ async function findEmailFor(contact: Contact): Promise<Contact> {
     trusted ? "success" : "warn",
   );
   return updated;
+}
+
+// Búsqueda gratuita en SignalHire (cupo diario, sin créditos). Nunca revela contactos.
+async function signalHireFree(contact: Contact): Promise<SignalHireInfo | undefined> {
+  if (!signalHireEnabled()) return undefined;
+  try {
+    const info = await searchSignalHire(contact);
+    const job = info.best?.experience?.[0];
+    await logEvent(
+      contact.id,
+      "linkedin",
+      info.best
+        ? `SignalHire (gratis): ${info.best.fullName}${job ? ` · ${job.title} @ ${job.company}` : ""} (${Math.round((info.best.score ?? 0) * 100)}%)`
+        : `SignalHire (gratis): ${info.total} resultado(s), ninguno coincide con seguridad`,
+      info.best ? "success" : "info",
+    );
+    return info;
+  } catch (e) {
+    await logEvent(contact.id, "linkedin", `SignalHire (gratis) no disponible: ${(e as Error).message}`, "warn");
+    return { searched_at: new Date().toISOString(), total: 0, best: null, others: [], error: (e as Error).message };
+  }
 }

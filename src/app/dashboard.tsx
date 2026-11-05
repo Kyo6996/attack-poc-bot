@@ -517,6 +517,13 @@ export function Dashboard({ section }: { section: Section }) {
                           <tr className="detail">
                             <td colSpan={7}>
                               <ProfileCard c={c} onChange={() => setReviewing(c)} />
+                              <SignalHireCard
+                                c={c}
+                                onDone={(m) => {
+                                  setMsg(m);
+                                  load();
+                                }}
+                              />
                               <ProvenanceTable c={c} />
                               <PhoneChooser
                                 c={c}
@@ -1214,5 +1221,141 @@ function ProvenanceTable({ c }: { c: Contact }) {
         </table>
       </div>
     </details>
+  );
+}
+
+function SignalHireCard({ c, onDone }: { c: Contact; onDone: (msg: string) => void }) {
+  const sh = c.profile?.signalhire;
+  const [credits, setCredits] = useState<number | null>(null);
+  const [enabled, setEnabled] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/signalhire/credits")
+      .then((r) => r.json())
+      .then((j) => {
+        setEnabled(j.enabled);
+        setCredits(j.credits);
+      })
+      .catch(() => undefined);
+  }, [sh?.reveal?.status]);
+
+  if (!enabled) return null;
+
+  async function act(action: "search" | "reveal", uid?: string) {
+    if (action === "reveal" && !confirm(`Revelar el celular y el correo gasta 1 crédito de SignalHire (te quedan ${credits ?? "?"}). ¿Continuar?`)) return;
+    setBusy(true);
+    setError(null);
+    const err = await send(`/api/contacts/${c.id}/signalhire`, "POST", action === "reveal" ? { action, confirm: true, uid } : { action });
+    setBusy(false);
+    if (err) setError(err);
+    else onDone(action === "reveal" ? "Revelado solicitado: SignalHire responde en unos segundos" : "Búsqueda gratuita en SignalHire actualizada");
+  }
+
+  const b = sh?.best;
+  const reveal = sh?.reveal;
+  return (
+    <div className="ficha sh-card">
+      <div className="ficha-head">
+        <h4>SignalHire</h4>
+        <span className="sh-credits" title="Créditos estándar: solo los gasta 'Revelar'">
+          {credits === null ? "créditos: —" : `${credits} crédito${credits === 1 ? "" : "s"}`}
+        </span>
+      </div>
+      {!sh ? (
+        <p className="s">Aún no se ha buscado en SignalHire. La búsqueda es gratuita (no gasta créditos).</p>
+      ) : sh.error ? (
+        <p className="s warn-text">No disponible: {sh.error}</p>
+      ) : !b ? (
+        <p className="s">{sh.total} resultado(s) en SignalHire, ninguno coincide con seguridad.</p>
+      ) : (
+        <div className="sh-body">
+          <div className="sh-who">
+            <b>{b.fullName}</b>
+            <span className={`badge ${(b.score ?? 0) >= 0.8 ? "b-ok" : "b-warn"}`}>{Math.round((b.score ?? 0) * 100)}% coincidencia</span>
+            {b.openToWork && <span className="badge b-info">Busca empleo</span>}
+            {b.location && <div className="s">📍 {b.location}</div>}
+          </div>
+          {b.experience?.length > 0 && (
+            <ul className="sh-jobs">
+              {b.experience.slice(0, 5).map((e, i) => (
+                <li key={i}>
+                  <span className={i === 0 ? "sh-dot now" : "sh-dot"} />
+                  <div>
+                    <b>{e.title || "Cargo no indicado"}</b>
+                    <div className="s">{e.company}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {b.skills?.length > 0 && (
+            <div className="sh-skills">
+              {b.skills.slice(0, 14).map((s) => (
+                <span key={s}>{s}</span>
+              ))}
+            </div>
+          )}
+          {b.contactsFetched && <p className="s">Sus contactos ya se habían revelado en SignalHire ({b.contactsFetched}).</p>}
+        </div>
+      )}
+
+      {sh && sh.others.length > 0 && (
+        <details className="sh-others">
+          <summary>Otros {sh.others.length} resultado(s)</summary>
+          <ul className="list">
+            {sh.others.map((o) => (
+              <li key={o.uid}>
+                <b>{o.fullName}</b>
+                <span className="s">
+                  {" "}
+                  · {o.experience?.[0] ? `${o.experience[0].title} @ ${o.experience[0].company}` : "sin historial"} · {o.location ?? ""} · {Math.round((o.score ?? 0) * 100)}%
+                </span>{" "}
+                {!reveal && (
+                  <button className="sm" disabled={busy || credits === 0} onClick={() => act("reveal", o.uid)}>
+                    Revelar este · 1 crédito
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {reveal && (
+        <div className={`sh-reveal ${reveal.status}`}>
+          {reveal.status === "pendiente" && <span className="pulse">Esperando respuesta de SignalHire…</span>}
+          {reveal.status === "sin datos" && <span>SignalHire no tenía contactos para esta persona (el crédito solo se descuenta si hay resultado).</span>}
+          {reveal.status === "listo" && (
+            <>
+              <b>Contactos revelados</b>
+              {(reveal.phones ?? []).map((p) => (
+                <div key={p.value} className="mono">
+                  ☎ {p.value} <span className="s">{p.subType ?? ""}</span>
+                </div>
+              ))}
+              {(reveal.emails ?? []).map((e) => (
+                <div key={e.value}>
+                  ✉ {e.value} <span className="s">{e.subType ?? ""}</span>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
+      {error && <div className="err" style={{ marginTop: 10, marginBottom: 0 }}>{error}</div>}
+      <div className="btnrow">
+        <button className="sm" disabled={busy} onClick={() => act("search")}>
+          {sh ? "Buscar de nuevo (gratis)" : "Buscar gratis"}
+        </button>
+        {!reveal && (
+          <button className="sm primary" disabled={busy || credits === 0 || (!b && !c.linkedin_url)} onClick={() => act("reveal")}>
+            Revelar celular y correo · 1 crédito
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
