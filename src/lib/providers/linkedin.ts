@@ -29,7 +29,9 @@ export async function findLinkedInProfile(contact: Contact): Promise<LinkedInRes
 
   let decision: LinkedInResult["decision"] = "not_found";
   let best: LinkedInCandidate | null = null;
-  if (top && top.confidence >= AUTO && !top.fromPost) {
+  // Dos candidatos casi empatados = homónimos: decide una persona.
+  const tied = !!scored[1] && top!.confidence - scored[1].confidence < 0.1;
+  if (top && top.confidence >= AUTO && !top.fromPost && !tied) {
     decision = "found";
     best = top;
   } else if (provider !== "serper") {
@@ -109,11 +111,15 @@ function parseLocation(text: string): string | null {
 
 async function searchSerper(c: Contact) {
   const name = fullName(c);
-  const first = `${c.first_name} ${c.last_name.split(/\s+/)[0]}`;
+  // En Colombia es común tener dos nombres y dos apellidos repartidos de cualquier forma entre los campos:
+  // se busca primero el nombre completo y luego combinaciones del primer nombre con cada apellido.
+  const words = name.split(/\s+/).filter(Boolean);
+  const variants = [...new Set([`${words[0]} ${words[words.length - 1]}`, words.length >= 4 ? `${words[0]} ${words[words.length - 2]}` : null].filter(Boolean))] as string[];
   const queries = [
+    `site:linkedin.com/in "${name}"`,
     c.company ? `site:linkedin.com/in "${name}" "${c.company}"` : null,
-    `site:linkedin.com/in "${first}"${c.title ? ` ${c.title}` : ""}`,
-    `"${first}" linkedin`,
+    `"${name}" linkedin`,
+    ...variants.filter((v) => v !== name).map((v) => `site:linkedin.com/in "${v}"${c.company ? ` ${c.company}` : ""}`),
   ].filter(Boolean) as string[];
 
   const bySlug = new Map<string, LinkedInCandidate>();
@@ -185,6 +191,9 @@ function heuristic(c: Contact, cand: LinkedInCandidate) {
   const co = /colombia|bogot|medell|cali\b|barranquilla|co\.linkedin/.test(hay) ? 1 : 0;
 
   let conf = Math.min(1, 0.3 * firstHit + 0.25 * lastHit + 0.3 * (compHit >= 0.6 ? 1 : compHit / 2) + 0.1 * titleHit + 0.05 * co);
+  // Un nombre completo largo (3+ palabras) que coincide entero rara vez es un homónimo.
+  const allName = [...first, ...last];
+  if (allName.length >= 3 && firstHit === 1 && lastHit === 1) conf = Math.min(1, conf + 0.1);
   // Homónimo probable: ni la empresa ni los apellidos completos coinciden.
   if (comp.length && compHit === 0 && lastHit < 1) conf *= 0.6;
   if (cand.fromPost) conf *= 0.85;
