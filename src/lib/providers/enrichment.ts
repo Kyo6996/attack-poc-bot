@@ -91,4 +91,4 @@ export function webPhone(contact: Contact): EnrichmentResult | null {
   return null;
 }
 
-export const isCompanyLine = (source: string | null | undefined) => !!source?.startsWith("web · empresa");
+export const isCompanyLine = (source: string | null | undefined) => !!source?.includes("empresa");

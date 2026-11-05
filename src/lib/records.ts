@@ -3,7 +3,10 @@ import { db, logEvent } from "./db";
 import { cancelGoogleEvent, replaceGoogleAttendee } from "./providers/calendar";
 import { toE164 } from "./util";
 
-export const CONTACT_FIELDS = ["first_name", "last_name", "company", "title", "city", "email", "consent", "event_notes"];
+export const CONTACT_FIELDS = ["first_name", "last_name", "company", "title", "city", "email", "consent", "event_notes", "phone"];
+
+// Un teléfono puesto a mano manda: el pipeline no lo reemplaza ni lo borra al reprocesar.
+export const isManualPhone = (source: string | null | undefined) => !!source?.startsWith("manual");
 export const SANDBOX_FIELDS = ["full_name", "company", "headline", "linkedin_url", "mobile_phone", "email", "mock_call_outcome"];
 export const REP_FIELDS = ["name", "title", "email", "phone", "area", "active"];
 const AREAS = ["dispositivos", "infraestructura", "servicios", "IA", "general"];
@@ -56,6 +59,15 @@ export function validateContact(data: Record<string, unknown>, creating: boolean
   if ("last_name" in data && !data.last_name) throw new InputError("Los apellidos no pueden quedar vacíos");
   if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(data.email))) throw new InputError("Correo inválido");
   if ("consent" in data) data.consent = Boolean(data.consent);
+  if ("phone" in data) {
+    if (!data.phone) data.phone = null;
+    else {
+      const p = toE164(String(data.phone));
+      if (!p) throw new InputError("Teléfono inválido. Usa +573001234567 o 3001234567");
+      data.phone = p;
+      data.enrichment_source = "manual";
+    }
+  }
 }
 
 export function validateSandbox(data: Record<string, unknown>, creating: boolean) {
@@ -92,11 +104,12 @@ export async function cancelEvents(filter: { contactId?: string }) {
 
 // La reunión anterior se cancela y se borra para que el contacto pueda volver a agendar.
 export async function resetContact(id: string, reason: string) {
-  const { data } = await db().from("contacts").select("status").eq("id", id).single();
+  const { data } = await db().from("contacts").select("status, phone, enrichment_source").eq("id", id).single();
   if (data?.status === "calling") throw new InputError("El contacto está en llamada; espera a que termine");
   await cancelEvents({ contactId: id });
   await db().from("meetings").delete().eq("contact_id", id);
-  const { error } = await db().from("contacts").update(PIPELINE_RESET).eq("id", id);
+  const keep = isManualPhone(data?.enrichment_source) ? { phone: data!.phone, enrichment_source: data!.enrichment_source } : {};
+  const { error } = await db().from("contacts").update({ ...PIPELINE_RESET, ...keep }).eq("id", id);
   if (error) throw new Error(error.message);
   await logEvent(id, "system", `Vuelve a pendiente: ${reason}`);
 }
@@ -106,7 +119,9 @@ export async function resetAllContacts() {
   await db().from("calls").delete().not("id", "is", null);
   await cancelEvents({});
   await db().from("meetings").delete().not("id", "is", null);
-  const { error } = await db().from("contacts").update(PIPELINE_RESET).not("id", "is", null);
+  const { phone: _p, enrichment_source: _e, ...keepPhone } = PIPELINE_RESET;
+  await db().from("contacts").update(keepPhone).like("enrichment_source", "manual%");
+  const { error } = await db().from("contacts").update(PIPELINE_RESET).or("enrichment_source.is.null,enrichment_source.not.like.manual*");
   if (error) throw new Error(error.message);
 }
 

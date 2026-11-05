@@ -16,6 +16,7 @@ const ALIASES: Record<string, string> = {
   email: "email", correo: "email",
   consentimiento: "consent", consent: "consent",
   stand: "event_notes", event_notes: "event_notes", notas_stand: "event_notes",
+  telefono: "phone", teléfono: "phone", celular: "phone", phone: "phone", movil: "phone", móvil: "phone",
 };
 
 function parseCsv(text: string): string[][] {

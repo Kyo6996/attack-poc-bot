@@ -1,5 +1,6 @@
 import "server-only";
 import { claimContact, db, logEvent, releaseContact, updateContact } from "./db";
+import { isManualPhone } from "./records";
 import { env } from "./env";
 import { enrichContact, webPhone, type EnrichmentResult } from "./providers/enrichment";
 import { findLinkedInProfile } from "./providers/linkedin";
@@ -71,9 +72,13 @@ export async function advanceContact(c: Contact, opts: { allowCall: boolean }): 
       }
       if (r.decision === "not_found" || !r.best) {
         await updateContact(contact.id, { linkedin_candidates: r.candidates, profile: r.profile });
-        contact = await skip(contact, "perfil de LinkedIn no encontrado", "linkedin");
-        return contact.status;
-      }
+        if (!(contact.phone && isManualPhone(contact.enrichment_source))) {
+          contact = await skip(contact, "perfil de LinkedIn no encontrado", "linkedin");
+          return contact.status;
+        }
+        await logEvent(contact.id, "linkedin", "Sin perfil de LinkedIn, pero tiene teléfono registrado a mano: sigue el flujo", "warn");
+        contact = await updateContact(contact.id, { status: "linkedin_found", ...fill });
+      } else {
       contact = await updateContact(contact.id, {
         status: "linkedin_found",
         linkedin_url: r.best.url,
@@ -89,6 +94,12 @@ export async function advanceContact(c: Contact, opts: { allowCall: boolean }): 
       if (r.profile.company) {
         await logEvent(contact.id, "linkedin", `Empresa: ${r.profile.company.name}${r.profile.company.website ? ` · ${r.profile.company.website}` : ""}`, "info");
       }
+      }
+    }
+
+    if (contact.status === "linkedin_found" && contact.phone && isManualPhone(contact.enrichment_source)) {
+      contact = await updateContact(contact.id, { status: "phone_found" });
+      await logEvent(contact.id, "enrichment", `Se usa el teléfono registrado a mano: ${maskPhone(contact.phone)}`, "success");
     }
 
     if (contact.status === "linkedin_found") {

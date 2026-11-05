@@ -19,6 +19,13 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     const { data: before, error: e1 } = await db().from("contacts").select("*").eq("id", id).single();
     if (e1) throw new InputError("Contacto no encontrado");
     const changed = Object.fromEntries(Object.entries(data).filter(([k, v]) => before[k] !== v));
+    // Solo se marca como "manual" si el teléfono realmente cambió.
+    if (!("phone" in changed)) delete changed.enrichment_source;
+    // Con un teléfono nuevo, el contacto queda listo para llamar.
+    if (typeof changed.phone === "string" && ["linkedin_found", "needs_review", "skipped", "no_answer", "call_failed", "declined"].includes(before.status)) {
+      changed.status = "phone_found";
+      changed.skip_reason = null;
+    }
 
     if (Object.keys(changed).length) {
       if (before.status === "calling") throw new InputError("El contacto está en llamada; espera a que termine");

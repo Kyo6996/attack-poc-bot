@@ -65,6 +65,7 @@ const CONTACT_FORM: Field[] = [
   { name: "title", label: "Cargo" },
   { name: "city", label: "Ciudad" },
   { name: "email", label: "Correo", type: "email", hint: "Si se deja vacío, se toma del enriquecimiento" },
+  { name: "phone", label: "Teléfono (opcional)", type: "tel", placeholder: "+57 300 000 0000", hint: "Si lo pones, el bot llama a este número y no lo busca" },
   { name: "event_notes", label: "Qué vio o preguntó en el stand", type: "textarea", placeholder: "Ej.: las soluciones de infraestructura híbrida" },
   { name: "consent", label: "Tiene consentimiento para ser contactado", type: "checkbox", wide: true },
 ];
@@ -537,6 +538,14 @@ export default function Dashboard() {
                           <tr className="detail">
                             <td colSpan={7}>
                               <ProfileCard c={c} onChange={() => setReviewing(c)} />
+                              <PhoneChooser
+                                c={c}
+                                live={state?.settings?.live_numbers ?? []}
+                                onDone={(m) => {
+                                  setMsg(m);
+                                  load();
+                                }}
+                              />
                               <div className="detail-grid">
                                 <div>
                                   <h4>Reunión y agenda</h4>
@@ -1104,6 +1113,68 @@ function ReviewDialog({ c, onDone, onClose }: { c: Contact; onDone: (msg: string
           <span style={{ flex: 1 }} />
           <button onClick={onClose}>Cerrar</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function PhoneChooser({ c, live, onDone }: { c: Contact; live: string[]; onDone: (msg: string) => void }) {
+  const options: { value: string; label: string }[] = [];
+  const add = (value: string | null | undefined, label: string) => {
+    if (value && !options.some((o) => o.value === value)) options.push({ value, label });
+  };
+  add(c.phone, `actual · ${c.enrichment_source ?? "sin origen"}`);
+  (c.profile?.phones ?? []).forEach((p) => add(p.value, `persona · ${p.type} · ${p.source}`));
+  (c.profile?.company?.phones ?? []).forEach((p) => add(p.value, `empresa · ${p.type} · ${p.source}`));
+
+  const [choice, setChoice] = useState<string>(c.phone ?? (options[0]?.value ?? "otro"));
+  const [other, setOther] = useState("");
+  const [consent, setConsent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const picked = choice === "otro" ? other : choice;
+  const pickedLabel = choice === "otro" ? null : options.find((o) => o.value === choice)?.label.replace(/^actual · /, "") ?? null;
+  const unchanged = choice !== "otro" && choice === c.phone && (!consent || live.includes(choice));
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    const err = await send(`/api/contacts/${c.id}/phone`, "POST", { phone: picked, source: pickedLabel, authorize: consent });
+    setBusy(false);
+    if (err) setError(err);
+    else onDone(`Teléfono para llamar a ${c.first_name} actualizado${consent ? " y autorizado para llamada real" : ""}. Usa ▶ para llamar.`);
+  }
+
+  return (
+    <div className="ficha">
+      <div className="ficha-head">
+        <h4>Teléfono para llamar</h4>
+      </div>
+      <div className="phone-options">
+        {options.map((o) => (
+          <label key={o.value} className="check">
+            <input type="radio" name={`ph-${c.id}`} checked={choice === o.value} onChange={() => setChoice(o.value)} />
+            <span className="mono">{o.value}</span>
+            <span className="s">{o.label}</span>
+            {live.includes(o.value) && <span className="s ok-text">✓ llamada real</span>}
+          </label>
+        ))}
+        <label className="check">
+          <input type="radio" name={`ph-${c.id}`} checked={choice === "otro"} onChange={() => setChoice("otro")} />
+          <span>Otro número:</span>
+          <input className="inline-input" value={other} placeholder="+57 300 000 0000" onFocus={() => setChoice("otro")} onChange={(e) => setOther(e.target.value)} />
+        </label>
+      </div>
+      <label className="check" style={{ marginTop: 8 }}>
+        <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
+        La persona dio su consentimiento: autorizar llamada real a este número
+      </label>
+      {error && <div className="err" style={{ marginTop: 8, marginBottom: 0 }}>{error}</div>}
+      <div className="btnrow">
+        <button className="sm primary" disabled={busy || !picked?.trim() || unchanged || c.status === "calling"} onClick={save}>
+          Usar este número
+        </button>
       </div>
     </div>
   );

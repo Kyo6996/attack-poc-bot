@@ -266,3 +266,6 @@ select { font: inherit; color: var(--text); background: var(--panel); border: 1p
 button.sm.danger { padding: 4px 9px; }
 
 .inline-input { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; }
+
+.phone-options { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.phone-options .check { flex-wrap: wrap; }
