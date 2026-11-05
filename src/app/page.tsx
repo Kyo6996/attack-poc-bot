@@ -288,6 +288,9 @@ export default function Dashboard() {
           <div className="sub">LinkedIn → enriquecimiento → llamada de voz con IA → reunión agendada</div>
         </div>
         <div className="chips">
+          <Link className="btn sm" href="/voces">
+            Voces del agente
+          </Link>
           <Link className="btn sm" href="/sla">
             Desempeño y SLA →
           </Link>

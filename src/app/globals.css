@@ -230,3 +230,21 @@ a.btn { display: inline-block; text-decoration: none; color: var(--text); }
 .menu-list { position: absolute; z-index: 5; top: calc(100% + 4px); left: 0; display: flex; flex-direction: column; min-width: 230px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 6px; box-shadow: 0 8px 24px rgb(0 0 0 / .15); }
 .menu-list button { border: 0; text-align: left; background: none; padding: 8px 10px; border-radius: 6px; }
 .menu-list button:hover { background: var(--neutral-bg); }
+
+/* Voces */
+.pad { padding: 16px 18px; margin-bottom: 14px; }
+.card h2.h { padding: 0; border: 0; margin: 0 0 12px; }
+.voice-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.voice { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 12px; }
+.voice.on { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.form input[type="range"] { padding: 0; }
+select { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; }
+.live-dot { font-size: 13px; color: var(--muted); }
+.live-dot::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); margin-right: 6px; }
+.live-dot.on { color: var(--ok); }
+.live-dot.on::before { background: var(--good); animation: pulse 1s infinite; }
+.transcript { margin-top: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; max-height: 300px; overflow-y: auto; background: var(--bg); }
+.transcript p { margin: 4px 0; font-size: 13.5px; }
+.transcript p.user b { color: var(--info); }
+.clip { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 0; border-top: 1px solid var(--border); margin-top: 10px; }
+.clip audio { height: 36px; }

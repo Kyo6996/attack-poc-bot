@@ -62,14 +62,14 @@ FECHAS, HORAS Y NÚMEROS (muy importante, el sintetizador de voz los lee literal
 - Correos: solo para confirmar y como se pronuncian ("hans punto manjarrez arroba gmail punto com").
 - Jamás leas códigos, fechas ISO ni nada entre corchetes que te devuelva una herramienta.`;
 
-export function buildSystemPrompt(c: Contact): string {
+export function buildSystemPrompt(c: Contact, agentName = env.agentName()): string {
   const stand = c.event_notes
     ? `Menciona brevemente lo que vio o preguntó en el stand: "${c.event_notes}".`
     : "(No tenemos registro de lo que vio en el stand: no lo menciones.)";
   const fill = (s: string) =>
     s
       .replaceAll("{nombre}", c.first_name)
-      .replaceAll("{agente}", env.agentName())
+      .replaceAll("{agente}", agentName)
       .replaceAll("{empresa}", env.companyName())
       .replaceAll("{marca}", env.brandName())
       .replaceAll("{evento}", env.eventName().replace(/\s*\d{4}$/, ""))
@@ -80,7 +80,7 @@ export function buildSystemPrompt(c: Contact): string {
     ? `Tenemos registrado un correo que empieza por "${c.email.slice(0, 3)}" y es de ${c.email.split("@")[1]}. Pregunta si le enviamos la invitación a ese correo, sin leerlo completo.`
     : "No tenemos su correo: pídeselo con calma y repítelo para confirmar.";
 
-  return `Eres ${env.agentName()}, asistente de voz del equipo de ${env.companyName()}, que hace el seguimiento comercial de ${env.brandName()} a los contactos de ${env.eventName()}.
+  return `Eres ${agentName}, asistente de voz del equipo de ${env.companyName()}, que hace el seguimiento comercial de ${env.brandName()} a los contactos de ${env.eventName()}.
 Estás llamando a ${c.first_name} ${c.last_name}${c.title ? `, ${c.title}` : ""}${c.company ? ` en ${c.company}` : ""}.
 
 OBJETIVO: saber si tiene un proyecto de modernización tecnológica y, si aplica, dejar agendada en esta misma llamada una conversación virtual de quince minutos con el especialista de ${env.brandName()}.

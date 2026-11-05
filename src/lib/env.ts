@@ -56,6 +56,8 @@ export const env = {
       .split(",")
       .map((n) => toE164(n))
       .filter((n): n is string => !!n),
+  vapiPublicKey: () => opt("VAPI_PUBLIC_KEY"),
+  replicateToken: () => opt("REPLICATE_API_TOKEN"),
   vapiModelProvider: () => opt("VAPI_MODEL_PROVIDER") ?? "openai",
   vapiModel: () => opt("VAPI_MODEL") ?? "gpt-4o",
   vapiVoiceProvider: () => opt("VAPI_VOICE_PROVIDER") ?? "azure",

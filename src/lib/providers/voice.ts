@@ -7,6 +7,7 @@ import { buildSystemPrompt, firstMessage } from "../script";
 import { getSettings } from "../settings";
 import { spokenSlot } from "../speech";
 import type { Contact } from "../types";
+import type { AgentVoice } from "../voices";
 import { maskPhone } from "../util";
 import { getAvailableSlots } from "./calendar";
 
@@ -98,47 +99,61 @@ export const VAPI_TOOLS = [
   { type: "endCall" },
 ];
 
+const SUMMARY_PROMPT =
+  "Eres analista comercial. Resume la llamada en español, en máximo 3 frases: si tiene proyecto y de qué trata, si agendó (día y hora) y cualquier objeción o dato a corregir. Sin saludos ni viñetas.";
+
+const DEMO_NOTE = `
+
+MODO DEMOSTRACIÓN (prueba desde el navegador): no tienes herramientas conectadas. Cuando acepte la reunión, ofrece
+"mañana a las nueve de la mañana" o "el viernes a las dos y media de la tarde"; cuando elija, confirma los datos, dile que
+lo atenderá Carolina Pérez, especialista en infraestructura, que le escribirá antes de la reunión, y despídete.`;
+
+// Misma configuración para la llamada real y para la prueba en el navegador (sin herramientas ni webhooks).
+export function buildAssistant(contact: Contact, voice: AgentVoice, mode: "call" | "preview") {
+  const base = {
+    name: mode === "call" ? `${env.companyName()} POC agendador` : `${env.companyName()} POC prueba de voz`,
+    firstMessage: firstMessage(contact),
+    firstMessageMode: "assistant-speaks-first",
+    model: {
+      provider: env.vapiModelProvider(),
+      model: env.vapiModel(),
+      temperature: 0.6,
+      messages: [{ role: "system", content: buildSystemPrompt(contact, voice.agentName) + (mode === "preview" ? DEMO_NOTE : "") }],
+      tools: mode === "call" ? VAPI_TOOLS : [{ type: "endCall" }],
+    },
+    voice: { provider: voice.provider, voiceId: voice.voiceId, speed: voice.speed },
+    transcriber: { provider: "deepgram", model: "nova-3", language: "es" },
+    backgroundSound: "office",
+    startSpeakingPlan: { waitSeconds: 0.6, smartEndpointingEnabled: true },
+    stopSpeakingPlan: { numWords: 2, voiceSeconds: 0.3, backoffSeconds: 1 },
+    maxDurationSeconds: mode === "call" ? 420 : 240,
+    endCallMessage: "Mil gracias por tu tiempo. ¡Que tengas un excelente día!",
+    artifactPlan: { recordingEnabled: false },
+  };
+  if (mode === "preview") return base;
+  return {
+    ...base,
+    server: { url: `${env.appUrl()}/api/webhooks/vapi?token=${encodeURIComponent(env.webhookSecret())}` },
+    serverMessages: ["tool-calls", "end-of-call-report", "status-update"],
+    metadata: { contactId: contact.id },
+    analysisPlan: {
+      summaryPlan: {
+        enabled: true,
+        messages: [
+          { role: "system", content: SUMMARY_PROMPT },
+          { role: "user", content: "Transcripción:\n{{transcript}}" },
+        ],
+      },
+    },
+  };
+}
+
 async function startVapiCall(contact: Contact): Promise<CallStart> {
-  const serverUrl = `${env.appUrl()}/api/webhooks/vapi?token=${encodeURIComponent(env.webhookSecret())}`;
+  const { agent_voice } = await getSettings();
   const body = {
     phoneNumberId: env.vapiPhoneNumberId(),
     customer: { number: contact.phone, name: `${contact.first_name} ${contact.last_name}`, externalId: contact.id },
-    assistant: {
-      name: `${env.companyName()} POC agendador`,
-      firstMessage: firstMessage(contact),
-      firstMessageMode: "assistant-speaks-first",
-      model: {
-        provider: env.vapiModelProvider(),
-        model: env.vapiModel(),
-        temperature: 0.6,
-        messages: [{ role: "system", content: buildSystemPrompt(contact) }],
-        tools: VAPI_TOOLS,
-      },
-      voice: { provider: env.vapiVoiceProvider(), voiceId: env.vapiVoiceId(), speed: 0.95 },
-      transcriber: { provider: "deepgram", model: "nova-3", language: "es" },
-      backgroundSound: "office",
-      startSpeakingPlan: { waitSeconds: 0.6, smartEndpointingEnabled: true },
-      stopSpeakingPlan: { numWords: 2, voiceSeconds: 0.3, backoffSeconds: 1 },
-      maxDurationSeconds: 420,
-      endCallMessage: "Mil gracias por tu tiempo. ¡Que tengas un excelente día!",
-      server: { url: serverUrl },
-      serverMessages: ["tool-calls", "end-of-call-report", "status-update"],
-      metadata: { contactId: contact.id },
-      artifactPlan: { recordingEnabled: false },
-      analysisPlan: {
-        summaryPlan: {
-          enabled: true,
-          messages: [
-            {
-              role: "system",
-              content:
-                "Eres analista comercial. Resume la llamada en español, en máximo 3 frases: si tiene proyecto y de qué trata, si agendó (día y hora) y cualquier objeción o dato a corregir. Sin saludos ni viñetas.",
-            },
-            { role: "user", content: "Transcripción:\n{{transcript}}" },
-          ],
-        },
-      },
-    },
+    assistant: buildAssistant(contact, agent_voice, "call"),
   };
 
   const res = await fetch("https://api.vapi.ai/call", {
