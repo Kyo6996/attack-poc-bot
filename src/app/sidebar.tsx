@@ -15,6 +15,7 @@ const I = {
   phone: "M5 4h3l2 5-2.5 1.5a11 11 0 0 0 6 6L15 14l5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2",
   plug: "M9 2v6M15 2v6M7 8h10v4a5 5 0 0 1-10 0V8ZM12 17v5",
   db: "M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3ZM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3",
+  report: "M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1ZM14 3v5h5M9 17v-3M12 17v-6M15 17v-2",
   logout: "M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l-5-5 5-5M5 12h11",
   menu: "M4 6h16M4 12h16M4 18h16",
 };
@@ -37,7 +38,13 @@ const NAV: { title: string; items: { href: string; label: string; icon: keyof ty
       { href: "/qr", label: "Formulario QR", icon: "qr" },
     ],
   },
-  { title: "Análisis", items: [{ href: "/sla", label: "Desempeño y SLA", icon: "chart" }] },
+  {
+    title: "Análisis",
+    items: [
+      { href: "/sla", label: "Desempeño y SLA", icon: "chart" },
+      { href: "/reporte", label: "Reporte diario", icon: "report" },
+    ],
+  },
   { title: "Equipo", items: [{ href: "/comerciales", label: "Comerciales", icon: "team" }] },
   {
     title: "Configuración",

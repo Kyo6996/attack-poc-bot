@@ -1,0 +1,294 @@
+{
+  "name": "Capricorne · Reporte operativo diario",
+  "nodes": [
+    {
+      "id": "n-note",
+      "name": "Nota",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -280
+      ],
+      "parameters": {
+        "width": 1600,
+        "height": 190,
+        "color": 5,
+        "content": "## Capricorne · Reporte operativo diario\nLunes a viernes 6:00 p. m. (Bogotá) o al pulsar **Enviar ahora** en Capricorne → Reporte diario.\n1 Capricorne entrega los datos del día · 2 Claude los analiza y propone decisiones · 3 se arma el análisis (si Claude falla se usan las reglas de operación) · 4 Capricorne genera el PDF con gráficos · 5 se envía a los destinatarios configurados por área · 6 el envío queda en la bitácora."
+      }
+    },
+    {
+      "id": "n-cron",
+      "name": "Lunes a viernes 6:00 p. m.",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "n-hook",
+      "name": "Enviar ahora (Capricorne)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ],
+      "webhookId": "8d3f6a52-1c4e-4b7a-9f0e-capricorne01",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "capricorne-reporte",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "n-data",
+      "name": "1 · Datos del día",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        100
+      ],
+      "parameters": {
+        "url": "https://TU-APP.vercel.app/api/report/data",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-report-key",
+              "value": "REEMPLAZAR_REPORT_API_KEY"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "n-claude",
+      "name": "2 · Claude analiza",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        500,
+        100
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-haiku-5-5', max_tokens: 1500, messages: [{ role: 'user', content: $json.claude_prompt }] }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "n-prep",
+      "name": "3 · Preparar análisis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        740,
+        100
+      ],
+      "parameters": {
+        "jsCode": "const data = $('1 · Datos del día').first().json;\nconst claude = $input.first().json;\nlet analysis = null;\nlet source = 'Claude';\ntry {\n  const text = (claude.content || []).find((b) => b.type === 'text')?.text || '';\n  const m = text.match(/\\{[\\s\\S]*\\}/);\n  if (m) {\n    const j = JSON.parse(m[0]);\n    if (j.summary && Array.isArray(j.decisions)) analysis = j;\n  }\n} catch (e) {}\nif (!analysis) {\n  analysis = data.analysis_rules;\n  source = 'reglas de operación (Claude no disponible)';\n}\nconst to = (data.recipients || []).map((r) => r.email);\nif (!to.length) throw new Error('No hay destinatarios configurados en Capricorne → Reporte diario');\nlet trigger = 'programado';\ntry { if ($('Enviar ahora (Capricorne)').isExecuted) trigger = 'manual'; } catch (e) {}\nconst esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);\nconst top = analysis.decisions.slice(0, 4).map((d) => '<li style=\"margin:0 0 6px\"><b>[' + esc(d.priority) + ']</b> ' + esc(d.action) + '</li>').join('');\nconst html = '<div style=\"font-family:Arial,sans-serif;color:#141826;max-width:620px\">'\n  + '<h2 style=\"color:#5b4bdb;margin:0 0 4px\">Reporte operativo diario</h2>'\n  + '<p style=\"color:#646b82;margin:0 0 14px\">' + esc(data.label) + (data.partial ? ' · corte parcial' : '') + '</p>'\n  + '<p style=\"line-height:1.5\">' + esc(analysis.summary) + '</p>'\n  + (top ? '<h3 style=\"margin:18px 0 8px\">Decisiones prioritarias</h3><ul style=\"padding-left:18px\">' + top + '</ul>' : '')\n  + '<p style=\"color:#646b82;font-size:12px;margin-top:18px\">Análisis: ' + esc(source) + '. El PDF adjunto trae los gráficos, la agenda de mañana y el detalle por comercial.</p></div>';\nreturn [{ json: { analysis, source, trigger, to: to.join(', '), recipients: to.length, subject: data.subject, html } }];"
+      }
+    },
+    {
+      "id": "n-pdf",
+      "name": "4 · Generar PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        980,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://TU-APP.vercel.app/api/report/pdf",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-report-key",
+              "value": "REEMPLAZAR_REPORT_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ analysis: $json.analysis, source: $json.source }) }}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "n-mail",
+      "name": "5 · Enviar a destinatarios",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1220,
+        100
+      ],
+      "parameters": {
+        "fromEmail": "Capricorne Project <remitente@gmail.com>",
+        "toEmail": "={{ $('3 · Preparar análisis').item.json.to }}",
+        "subject": "={{ $('3 · Preparar análisis').item.json.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $('3 · Preparar análisis').item.json.html }}",
+        "options": {
+          "attachments": "data"
+        }
+      }
+    },
+    {
+      "id": "n-log",
+      "name": "6 · Registrar en Capricorne",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1460,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://TU-APP.vercel.app/api/report/log",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-report-key",
+              "value": "REEMPLAZAR_REPORT_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ok: true, recipients: $('3 · Preparar análisis').item.json.recipients, trigger: $('3 · Preparar análisis').item.json.trigger, analysis: $('3 · Preparar análisis').item.json.source }) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Lunes a viernes 6:00 p. m.": {
+      "main": [
+        [
+          {
+            "node": "1 · Datos del día",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar ahora (Capricorne)": {
+      "main": [
+        [
+          {
+            "node": "1 · Datos del día",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1 · Datos del día": {
+      "main": [
+        [
+          {
+            "node": "2 · Claude analiza",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2 · Claude analiza": {
+      "main": [
+        [
+          {
+            "node": "3 · Preparar análisis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3 · Preparar análisis": {
+      "main": [
+        [
+          {
+            "node": "4 · Generar PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4 · Generar PDF": {
+      "main": [
+        [
+          {
+            "node": "5 · Enviar a destinatarios",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5 · Enviar a destinatarios": {
+      "main": [
+        [
+          {
+            "node": "6 · Registrar en Capricorne",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Bogota"
+  },
+  "pinData": {}
+}

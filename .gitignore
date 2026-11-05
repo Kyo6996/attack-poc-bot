@@ -13,3 +13,6 @@ CLAUDE.md
 
 .vercel
 .env*
+
+# Flujo de n8n con la clave real (se importa en n8n, no se sube)
+n8n/reporte-diario.json

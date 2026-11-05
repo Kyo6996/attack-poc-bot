@@ -10,6 +10,9 @@ export async function proxy(req: NextRequest) {
   if (pathname === "/login" || pathname.startsWith("/api/auth/")) return NextResponse.next();
 
   if (await readSession(req.cookies.get(SESSION_COOKIE)?.value)) return NextResponse.next();
+  // n8n entra solo a las rutas del reporte con su propia clave.
+  const reportKey = process.env.REPORT_API_KEY?.trim();
+  if (reportKey && /^\/api\/report\/(data|pdf|log)$/.test(pathname) && req.headers.get("x-report-key") === reportKey) return NextResponse.next();
   const auth = req.headers.get("authorization");
   if (auth?.startsWith("Basic ")) {
     const [, pass] = atob(auth.slice(6)).split(":");
