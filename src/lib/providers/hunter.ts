@@ -17,7 +17,8 @@ export async function findWorkEmail(first: string, last: string, domain: string)
   const key = process.env.HUNTER_API_KEY;
   if (!key) return { found: null, error: "sin HUNTER_API_KEY" };
   const url = new URL("https://api.hunter.io/v2/email-finder");
-  url.search = new URLSearchParams({ domain, first_name: first, last_name: last.split(/\s+/)[0], api_key: key }).toString();
+  // Hunter separa nombre y apellidos por su cuenta: evita adivinar con dos nombres y dos apellidos.
+  url.search = new URLSearchParams({ domain, full_name: `${first} ${last}`.trim(), api_key: key }).toString();
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(25_000) });
     const json = (await res.json()) as {
