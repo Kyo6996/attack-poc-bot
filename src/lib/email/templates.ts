@@ -14,8 +14,21 @@ function fmt(iso: string, opts: Intl.DateTimeFormatOptions) {
   return new Intl.DateTimeFormat("es-CO", { timeZone: env.timeZone(), ...opts }).format(new Date(iso));
 }
 
+// Imágenes animadas servidas por la app (GIF: se animan en Gmail, Apple Mail y Outlook web).
+const asset = (file: string) => `${env.appUrl()}/email/${file}`;
+
+// Animaciones CSS: solo las muestran Apple Mail e iOS; el resto las ignora sin romper el diseño.
+const MOTION_CSS = `<style>
+@keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(226,35,26,.45); } 50% { box-shadow: 0 0 0 8px rgba(226,35,26,0); } }
+.anim-in { animation: fadeUp .7s ease-out both; }
+.anim-in-2 { animation: fadeUp .7s ease-out .25s both; }
+.cta-pulse { animation: pulse 2.4s ease-in-out 1.2s 3; }
+@media (prefers-reduced-motion: reduce) { .anim-in, .anim-in-2, .cta-pulse { animation: none !important; } }
+</style>`;
+
 function button(href: string, label: string, primary = true) {
-  return `<a href="${esc(href)}" style="display:inline-block;padding:13px 26px;border-radius:6px;font:600 15px/1 Arial,Helvetica,sans-serif;text-decoration:none;${
+  return `<a href="${esc(href)}"${primary ? ' class="cta-pulse"' : ""} style="display:inline-block;padding:13px 26px;border-radius:6px;font:600 15px/1 Arial,Helvetica,sans-serif;text-decoration:none;${
     primary ? `background:${RED};color:#ffffff;` : `background:#ffffff;color:${INK};border:1px solid ${LINE};`
   }">${esc(label)}</a>`;
 }
@@ -43,11 +56,11 @@ function pillars() {
     </table>`;
 }
 
-function layout(opts: { preheader: string; eyebrow: string; title: string; body: string }) {
+function layout(opts: { preheader: string; eyebrow: string; title: string; body: string; icon?: "check" }) {
   const brand = esc(env.brandName());
   return `<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(opts.title)}</title></head>
+<title>${esc(opts.title)}</title>${MOTION_CSS}</head>
 <body style="margin:0;padding:0;background:#eeeeef">
 <span style="display:none!important;opacity:0;color:transparent;height:0;width:0;overflow:hidden">${esc(opts.preheader)}</span>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eeeeef">
@@ -59,12 +72,13 @@ function layout(opts: { preheader: string; eyebrow: string; title: string; body:
         <td align="right"><span style="display:inline-block;padding:6px 10px;border:1px solid ${RED};border-radius:4px;font:700 11px/1 Arial,Helvetica,sans-serif;color:#ffffff;letter-spacing:.08em">${esc(env.eventName().toUpperCase())}</span></td>
       </tr></table>
     </td></tr>
-    <tr><td style="height:4px;background:${RED};font-size:0;line-height:0">&nbsp;</td></tr>
-    <tr><td style="padding:34px 32px 8px">
+    <tr><td bgcolor="${RED}" style="height:6px;background:${RED};font-size:0;line-height:0"><img src="${asset("accent.gif")}" width="600" height="6" alt="" style="display:block;width:100%;height:6px;border:0"></td></tr>
+    <tr><td class="anim-in" style="padding:34px 32px 8px">
+      ${opts.icon === "check" ? `<img src="${asset("check.gif")}" width="56" height="56" alt="Confirmado" style="display:block;width:56px;height:56px;border:0;margin:0 0 14px">` : ""}
       <p style="margin:0 0 8px;font:700 12px/1 Arial,Helvetica,sans-serif;color:${RED};letter-spacing:.12em;text-transform:uppercase">${esc(opts.eyebrow)}</p>
       <h1 style="margin:0;font:700 26px/1.25 Arial,Helvetica,sans-serif;color:${INK}">${esc(opts.title)}</h1>
     </td></tr>
-    <tr><td style="padding:12px 32px 34px">${opts.body}</td></tr>
+    <tr><td class="anim-in-2" style="padding:12px 32px 34px">${opts.body}</td></tr>
     <tr><td style="background:${SOFT};padding:18px 32px;border-top:1px solid ${LINE}">
       <p style="margin:0;font:12px/1.6 Arial,Helvetica,sans-serif;color:${MUTED}">
         Recibes este correo porque nos visitaste en ${esc(env.eventName())} y autorizaste ser contactado.
@@ -146,7 +160,7 @@ export function confirmationEmail(c: Contact, m: Meeting, rep: SalesRep | null) 
 
   return {
     subject,
-    html: layout({ preheader: `${date}, ${time} · Google Meet`, eyebrow: "Reunión confirmada", title: "Tu conversación está agendada", body }),
+    html: layout({ preheader: `${date}, ${time} · Google Meet`, eyebrow: "Reunión confirmada", title: "Tu conversación está agendada", body, icon: "check" }),
   };
 }
 

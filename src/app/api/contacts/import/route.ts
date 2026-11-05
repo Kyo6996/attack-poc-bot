@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
     return o;
   });
 
-  const { data: inserted, error } = await db().from("contacts").insert(records).select("id");
+  const { data: inserted, error } = await db().from("contacts").insert(records.map((r) => ({ ...r, source: "csv" }))).select("id");
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   const count = inserted?.length ?? 0;
   await logEvent(null, "system", `Importados ${count} contactos: buscando su información…`, "success");

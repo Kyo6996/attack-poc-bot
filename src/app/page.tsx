@@ -312,6 +312,9 @@ export default function Dashboard() {
           <div className="sub">LinkedIn → enriquecimiento → llamada de voz con IA → reunión agendada</div>
         </div>
         <div className="chips">
+          <Link className="btn sm" href="/qr">
+            Formulario QR
+          </Link>
           <Link className="btn sm" href="/voces">
             Voces del agente
           </Link>
@@ -471,6 +474,12 @@ export default function Dashboard() {
                             <div className="s">
                               {c.title} · {c.company}
                               {!c.consent && " · sin consentimiento"}
+                              {c.source?.startsWith("qr") && (
+                                <span className="badge b-info" style={{ marginLeft: 6 }}>
+                                  QR · {c.source.slice(3)}
+                                  {c.contact_preference ? ` · prefiere ${c.contact_preference}` : ""}
+                                </span>
+                              )}
                             </div>
                           </td>
                           <td>

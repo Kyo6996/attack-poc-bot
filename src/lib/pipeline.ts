@@ -60,7 +60,11 @@ export async function advanceContact(c: Contact, opts: { allowCall: boolean }): 
       const r = await findLinkedInProfile(contact);
       const fill = fillFromProfile(contact, r.best?.headline ?? null, r.profile.location);
 
-      if (r.decision === "review") {
+      if (r.decision === "review" && contact.phone && isManualPhone(contact.enrichment_source)) {
+        // Con teléfono registrado a mano la duda sobre LinkedIn no frena la llamada; el perfil se puede elegir después.
+        contact = await updateContact(contact.id, { status: "linkedin_found", linkedin_candidates: r.candidates, profile: r.profile, ...fill });
+        await logEvent(contact.id, "linkedin", `${r.candidates.length} perfiles posibles por revisar; sigue con el teléfono registrado`, "warn");
+      } else if (r.decision === "review") {
         contact = await updateContact(contact.id, {
           status: "needs_review",
           linkedin_candidates: r.candidates,
@@ -69,8 +73,7 @@ export async function advanceContact(c: Contact, opts: { allowCall: boolean }): 
         });
         await logEvent(contact.id, "linkedin", `${r.candidates.length} perfiles posibles (mejor ${Math.round(r.candidates[0].confidence * 100)}%): queda por revisar`, "warn");
         return contact.status;
-      }
-      if (r.decision === "not_found" || !r.best) {
+      } else if (r.decision === "not_found" || !r.best) {
         await updateContact(contact.id, { linkedin_candidates: r.candidates, profile: r.profile });
         if (!(contact.phone && isManualPhone(contact.enrichment_source))) {
           contact = await skip(contact, "perfil de LinkedIn no encontrado", "linkedin");

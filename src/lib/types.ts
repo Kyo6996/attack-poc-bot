@@ -38,6 +38,8 @@ export interface Contact {
   recording_url: string | null;
   locked_until: string | null;
   booking_token: string;
+  source: string; // panel | csv | qr:<origen>
+  contact_preference: string | null;
   created_at: string;
   updated_at: string;
 }
