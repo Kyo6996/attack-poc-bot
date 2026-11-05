@@ -2,7 +2,7 @@ import "server-only";
 import { checkMobile } from "./enrichment";
 import { env } from "../env";
 import { extractPhones } from "../contactinfo";
-import type { ApolloInfo, CompanyInfo, Contact, ContactPhone } from "../types";
+import type { ApolloInfo, CompanyInfo, CompanySignals, Contact, ContactPhone } from "../types";
 
 const API = "https://api.apollo.io/api/v1";
 const key = () => process.env.APOLLO_API_KEY?.trim();
@@ -25,6 +25,7 @@ async function call<T>(path: string, method: "GET" | "POST", params: Record<stri
 // ---------------------------------------------------------------- empresa (incluido en el plan gratis)
 
 interface ApolloOrg {
+  id?: string;
   name?: string;
   website_url?: string | null;
   linkedin_url?: string | null;
@@ -94,7 +95,29 @@ export async function withApolloOrg(company: CompanyInfo | null, contact: Contac
     const found: ContactPhone[] = extractPhones(raw, "Apollo", "empresa");
     out.phones = [...phones, ...found.filter((p) => !phones.some((x) => x.value === p.value))].slice(0, 6);
   }
+  if (org.id) out.signals = await companySignals(org.id);
   return out;
+}
+
+const LATAM = /colombia|bogot|medell|cali|barranquilla|latin|mexico|méxico|peru|perú|chile|argentin|ecuador|panam/i;
+
+// Señales de prospección: vacantes abiertas (crecimiento y áreas que contratan) y noticias recientes.
+async function companySignals(orgId: string): Promise<CompanySignals | undefined> {
+  type Job = { title?: string; url?: string; city?: string | null; country?: string | null; posted_at?: string | null };
+  type News = { title?: string; url?: string; snippet?: string | null; published_at?: string | null; event_categories?: string[] };
+  const [jobs, news] = await Promise.all([
+    call<{ organization_job_postings?: Job[]; pagination?: { total_entries?: number } }>(`organizations/${orgId}/job_postings`, "GET", { per_page: "100" }).catch(() => null),
+    call<{ news_articles?: News[] }>("news_articles/search", "POST", { "organization_ids[]": orgId, per_page: "4" }).catch(() => null),
+  ]);
+  if (!jobs && !news) return undefined;
+  const list = jobs?.organization_job_postings ?? [];
+  const local = list.filter((j) => LATAM.test(`${j.city ?? ""} ${j.country ?? ""}`));
+  return {
+    jobs_total: jobs?.pagination?.total_entries ?? list.length,
+    jobs_latam: local.length,
+    jobs: (local.length ? local : list).slice(0, 4).map((j) => ({ title: j.title ?? "", url: j.url ?? null, place: [j.city, j.country].filter(Boolean).join(", ") || null, posted_at: j.posted_at ?? null })),
+    news: (news?.news_articles ?? []).slice(0, 3).map((n) => ({ title: n.title ?? "", url: n.url ?? null, snippet: n.snippet ?? null, published_at: n.published_at ?? null, category: n.event_categories?.[0] ?? null })),
+  };
 }
 
 // ---------------------------------------------------------------- persona (gasta créditos; requiere plan pago)

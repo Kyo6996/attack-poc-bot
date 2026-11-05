@@ -1028,6 +1028,49 @@ function ProfileCard({ c, onChange }: { c: Contact; onChange: () => void }) {
                     </>
                   )}
                 </div>
+                {co.signals && (co.signals.jobs.length > 0 || co.signals.news.length > 0) && (
+                  <div className="signals">
+                    {co.signals.jobs.length > 0 && (
+                      <>
+                        <div className="s" style={{ marginTop: 8 }}>
+                          <b>Contratando</b> · {co.signals.jobs_total} vacante(s){co.signals.jobs_latam ? ` · ${co.signals.jobs_latam} en Latinoamérica` : ""} · Apollo
+                        </div>
+                        {co.signals.jobs.map((j, i) => (
+                          <div key={i} className="s">
+                            •{" "}
+                            {j.url ? (
+                              <a href={j.url} target="_blank" rel="noreferrer">
+                                {j.title}
+                              </a>
+                            ) : (
+                              j.title
+                            )}
+                            {j.place ? ` · ${j.place}` : ""}
+                          </div>
+                        ))}
+                      </>
+                    )}
+                    {co.signals.news.length > 0 && (
+                      <>
+                        <div className="s" style={{ marginTop: 8 }}>
+                          <b>Noticias recientes</b> · Apollo
+                        </div>
+                        {co.signals.news.map((n, i) => (
+                          <div key={i} className="s">
+                            • {n.published_at ? `${n.published_at.slice(0, 10)} · ` : ""}
+                            {n.url ? (
+                              <a href={n.url} target="_blank" rel="noreferrer">
+                                {n.title}
+                              </a>
+                            ) : (
+                              n.title
+                            )}
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
               </>
             ) : (
               <span className="s">No se encontró información confiable de la empresa.</span>

@@ -84,6 +84,15 @@ export interface CompanyInfo {
   emails?: string[];
   // De qué servicio salió cada campo de la empresa, con el enlace de respaldo.
   field_sources?: Record<string, { source: string; url?: string | null }>;
+  signals?: CompanySignals;
+}
+
+// Señales de prospección de Apollo para preparar la conversación.
+export interface CompanySignals {
+  jobs_total: number;
+  jobs_latam: number;
+  jobs: { title: string; url: string | null; place: string | null; posted_at: string | null }[];
+  news: { title: string; url: string | null; snippet: string | null; published_at: string | null; category: string | null }[];
 }
 
 // Registro de procedencia de cada dato del contacto (se escribe cuando el bot llena el campo).

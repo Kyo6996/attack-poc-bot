@@ -68,9 +68,9 @@ async function apolloItem(): Promise<{ name: string; purpose: string; status: St
   return {
     name: "Apollo.io",
     purpose,
-    status: st.person ? "activo" : "prueba",
+    status: st.org || st.person ? "activo" : "inactivo",
     detail: st.person
       ? `Plan con acceso a personas · ${count ?? 0} enriquecimiento(s) con crédito hechos por la app${usage}. Saldo exacto: app.apollo.io → Settings → Plans & Billing (la API no lo publica)`
-      : `Plan gratis: empresas activo; correo y celular de personas requieren plan pago${usage}`,
+      : `Activo: datos de empresa, vacantes y noticias para prospección${usage}. Correo y celular de personas: el plan gratis no los entrega por API (sí desde app.apollo.io)`,
   };
 }
