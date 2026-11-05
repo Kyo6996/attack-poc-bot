@@ -19,7 +19,7 @@ export async function findWorkEmail(first: string, last: string, domain: string)
   const url = new URL("https://api.hunter.io/v2/email-finder");
   url.search = new URLSearchParams({ domain, first_name: first, last_name: last.split(/\s+/)[0], api_key: key }).toString();
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(25_000) });
     const json = (await res.json()) as {
       data?: { email: string | null; score: number | null; position: string | null; phone_number: string | null; verification?: { status: string | null } };
       errors?: { id: string; details: string }[];
