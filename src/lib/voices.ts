@@ -47,6 +47,8 @@ export function vapiVoice(v: AgentVoice) {
       style: 0.2,
       useSpeakerBoost: true,
       speed: v.speed,
+      // Si ElevenLabs falla (plan, cuota o caída), Vapi sigue la llamada con Salomé en vez de quedar en silencio.
+      fallbackPlan: { voices: [{ provider: "azure", voiceId: "es-CO-SalomeNeural" }] },
     };
   }
   return { provider: v.provider, voiceId: v.voiceId, speed: v.speed };
