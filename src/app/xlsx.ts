@@ -2,6 +2,7 @@
 
 import type { Workbook, Worksheet } from "exceljs";
 import type { Stats } from "@/lib/stats";
+import { provenanceRows } from "@/lib/provenance";
 import type { CallRow, Contact, EmailRow, Meeting, SalesRep } from "@/lib/types";
 
 // exceljs pesa ~1 MB: se carga solo al exportar/importar.
@@ -323,6 +324,24 @@ export async function exportContacts(d: { contacts: Contact[]; meetings: Meeting
     });
   }
   body(ws);
+
+  // Procedencia de cada dato, para auditoría
+  const wp = wb.addWorksheet("Origen de los datos");
+  header(wp, [
+    { header: "Contacto", key: "contact", width: 26 },
+    { header: "Campo", key: "field", width: 26 },
+    { header: "Valor", key: "value", width: 40 },
+    { header: "Fuente", key: "source", width: 34 },
+    { header: "Detalle", key: "detail", width: 30 },
+    { header: "Enlace de respaldo", key: "url", width: 40 },
+    { header: "Fecha", key: "at", width: 18 },
+  ]);
+  for (const c of d.contacts) {
+    for (const r of provenanceRows(c)) {
+      wp.addRow({ contact: `${c.first_name} ${c.last_name}`, field: r.field, value: r.value, source: r.source, detail: r.detail ?? "", url: r.url ?? "", at: fmtDateTime(r.at ?? null) });
+    }
+  }
+  body(wp);
   await save(wb, `base-clientes-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 

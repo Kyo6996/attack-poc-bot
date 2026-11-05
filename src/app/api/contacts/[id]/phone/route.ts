@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { db, logEvent, updateContact } from "@/lib/db";
 import { getSettings, setSetting } from "@/lib/settings";
 import type { Contact, ContactStatus } from "@/lib/types";
+import { withProvenance } from "@/lib/provenance";
 import { maskPhone, toE164 } from "@/lib/util";
 
 // Estados desde los que, al elegir número, el contacto queda listo para llamar con ▶.
@@ -24,6 +25,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   await updateContact(id, {
     phone,
     enrichment_source: source,
+    profile: withProvenance(c.profile, { phone: { source: body.source ? `Elegido a mano (${body.source})` : "Ingresado a mano en el panel" } }),
     skip_reason: null,
     ...(READY_FROM.includes(c.status) ? { status: "phone_found" as const } : {}),
   });

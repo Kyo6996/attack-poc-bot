@@ -82,6 +82,16 @@ export interface CompanyInfo {
   category?: string | null;
   phones?: ContactPhone[];
   emails?: string[];
+  // De qué servicio salió cada campo de la empresa, con el enlace de respaldo.
+  field_sources?: Record<string, { source: string; url?: string | null }>;
+}
+
+// Registro de procedencia de cada dato del contacto (se escribe cuando el bot llena el campo).
+export interface Provenance {
+  source: string;
+  detail?: string | null;
+  url?: string | null;
+  at: string;
 }
 
 export interface ContactPhone {
@@ -100,6 +110,7 @@ export interface Profile {
   company: CompanyInfo | null;
   phones?: ContactPhone[];
   email?: { value: string; score: number; status: string | null; source: string };
+  provenance?: Record<string, Provenance>;
   searched_at: string;
   queries: number;
 }

@@ -1,6 +1,7 @@
 import { after, NextResponse, type NextRequest } from "next/server";
 import { db, logEvent } from "@/lib/db";
 import { prepareContacts } from "@/lib/pipeline";
+import { withProvenance } from "@/lib/provenance";
 import { cancelEvents, CONTACT_FIELDS, InputError, pick, resetContact, syncMeetingEmail, touchesFlow, validateContact } from "@/lib/records";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -29,7 +30,9 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
     if (Object.keys(changed).length) {
       if (before.status === "calling") throw new InputError("El contacto está en llamada; espera a que termine");
-      const { error } = await db().from("contacts").update(changed).eq("id", id);
+      const edited = Object.keys(changed).filter((k) => !["status", "skip_reason", "enrichment_source"].includes(k));
+      const profile = withProvenance(before.profile, Object.fromEntries(edited.map((k) => [k, { source: "Editado a mano en el panel" }])));
+      const { error } = await db().from("contacts").update({ ...changed, profile }).eq("id", id);
       if (error) throw new Error(error.message);
       await logEvent(id, "system", `Editado desde el panel: ${Object.keys(changed).join(", ")}`);
     }

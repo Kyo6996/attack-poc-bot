@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { db, logEvent, updateContact } from "@/lib/db";
 import { fillFromProfile } from "@/lib/pipeline";
+import { withProvenance } from "@/lib/provenance";
 import { buildProfile } from "@/lib/providers/linkedin";
 import type { Contact, LinkedInCandidate } from "@/lib/types";
 
@@ -35,7 +36,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     confidence: 1,
     reason: "ingresado a mano",
   };
-  const profile = { ...buildProfile(cand, c.profile?.company ?? null, c.profile?.queries ?? 0) };
+  const profile = withProvenance(
+    { ...buildProfile(cand, c.profile?.company ?? null, c.profile?.queries ?? 0), provenance: c.profile?.provenance },
+    { linkedin_url: { source: "Confirmado a mano en el panel", detail: cand.reason || null, url: canonical } },
+  );
 
   await updateContact(id, {
     linkedin_url: canonical,

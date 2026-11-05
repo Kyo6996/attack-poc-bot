@@ -8,6 +8,7 @@ import { findLinkedInProfile } from "./providers/linkedin";
 import { startCall } from "./providers/voice";
 import { fullName, type Contact, type ContactStatus } from "./types";
 import { maskPhone } from "./util";
+import { withProvenance } from "./provenance";
 
 // Cada ejecución avanza un contacto hasta un estado final o hasta quedar esperando un webhook
 // (SignalHire o fin de llamada); así cabe en el límite de tiempo de Vercel.
@@ -60,6 +61,19 @@ export async function advanceContact(c: Contact, opts: { allowCall: boolean }): 
       await logEvent(contact.id, "linkedin", `Buscando perfil de ${fullName(contact)} (${env.providers.linkedin})`);
       const r = await findLinkedInProfile(contact);
       const fill = fillFromProfile(contact, r.best?.headline ?? null, r.profile.location);
+      const liUrl = r.best?.sources[0]?.url ?? r.best?.url ?? null;
+      r.profile = withProvenance({ ...r.profile, provenance: contact.profile?.provenance }, {
+        ...(r.best
+          ? {
+              linkedin_url: {
+                source: r.best.origin === "sandbox" ? "Datos de prueba (sandbox)" : "Google vía Serper",
+                detail: `${Math.round(r.best.confidence * 100)}% · ${r.best.reason}`,
+                url: liUrl,
+              },
+            }
+          : {}),
+        ...Object.fromEntries(Object.keys(fill).map((k) => [k, { source: "Perfil público de LinkedIn (Google)", url: liUrl }])),
+      });
 
       if (r.decision === "review" && contact.phone && isManualPhone(contact.enrichment_source)) {
         // Con teléfono registrado a mano la duda sobre LinkedIn no frena la llamada; el perfil se puede elegir después.
@@ -157,6 +171,10 @@ export async function applyEnrichment(contact: Contact, r: EnrichmentResult): Pr
     status: "phone_found",
     phone: r.phone,
     email: contact.email ?? r.email,
+    profile: withProvenance(contact.profile, {
+      phone: { source: r.source.startsWith("sandbox") ? "Datos de prueba (sandbox)" : r.source.startsWith("signalhire") ? "SignalHire" : r.source },
+      ...(!contact.email && r.email ? { email: { source: r.source.startsWith("signalhire") ? "SignalHire" : "Datos de prueba (sandbox)" } } : {}),
+    }),
     enrichment_source: r.source,
   });
   await logEvent(contact.id, "enrichment", `Teléfono encontrado: ${maskPhone(r.phone)} · ${r.source}`, "success");
@@ -211,7 +229,10 @@ async function findEmailFor(contact: Contact): Promise<Contact> {
     phones: [...(contact.profile!.phones ?? []), ...found.phones.filter((p) => !(contact.profile!.phones ?? []).some((x) => x.value === p.value))],
   };
   const updated = await updateContact(contact.id, {
-    profile,
+    profile: withProvenance(profile, {
+      ...(trusted ? { email: { source: "Hunter", detail: `confianza ${found.score}%${found.status ? ` · ${found.status}` : ""}` } } : {}),
+      ...(!contact.title && found.position ? { title: { source: "Hunter" } } : {}),
+    }),
     ...(trusted ? { email: found.email } : {}),
     ...(!contact.title && found.position ? { title: found.position } : {}),
   });

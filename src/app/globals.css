@@ -318,3 +318,7 @@ button.sm.on { border-color: var(--accent); color: var(--accent); }
   .sheet.tarjetas { grid-template-columns: repeat(2, 88mm); }
   .flyer { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+.prov summary { cursor: pointer; }
+.prov table { margin-top: 8px; font-size: 13px; }
+.prov th, .prov td { padding: 6px 8px; }

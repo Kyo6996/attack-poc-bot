@@ -306,6 +306,14 @@ export async function companyInfo(name: string, city?: string | null): Promise<C
     category: place?.category ?? null,
     phones: phones.slice(0, 5),
     emails,
+    field_sources: {
+      ...(website ? { website: place?.website ? { source: "Google Maps" } : kgOk && kg!.website ? { source: "Google (ficha de empresa)" } : { source: "Google (resultado de búsqueda)", url: site?.link } } : {}),
+      ...(place?.address ? { address: { source: "Google Maps" } } : {}),
+      ...(place?.category ? { category: { source: "Google Maps" } } : {}),
+      ...((kgOk && kg!.description) || site?.snippet ? { description: kgOk && kg!.description ? { source: "Google (ficha de empresa)" } : { source: "Google (resultado de búsqueda)", url: site?.link } } : {}),
+      ...(li ? { linkedin: { source: "Google (resultado de búsqueda)", url: li.link } } : {}),
+      ...(emails.length && website ? { emails: { source: "Sitio web de la empresa", url: website } } : {}),
+    },
   };
   companyCache.set(key, info);
   return info;

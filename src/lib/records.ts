@@ -1,6 +1,8 @@
 import "server-only";
 import { db, logEvent } from "./db";
 import { cancelGoogleEvent, replaceGoogleAttendee } from "./providers/calendar";
+import { withProvenance } from "./provenance";
+import type { Profile } from "./types";
 import { toE164 } from "./util";
 
 export const CONTACT_FIELDS = ["first_name", "last_name", "company", "title", "city", "email", "consent", "event_notes", "phone"];
@@ -104,12 +106,17 @@ export async function cancelEvents(filter: { contactId?: string }) {
 
 // La reunión anterior se cancela y se borra para que el contacto pueda volver a agendar.
 export async function resetContact(id: string, reason: string) {
-  const { data } = await db().from("contacts").select("status, phone, enrichment_source").eq("id", id).single();
+  const { data } = await db().from("contacts").select("status, phone, enrichment_source, profile").eq("id", id).single();
   if (data?.status === "calling") throw new InputError("El contacto está en llamada; espera a que termine");
   await cancelEvents({ contactId: id });
   await db().from("meetings").delete().eq("contact_id", id);
-  const keep = isManualPhone(data?.enrichment_source) ? { phone: data!.phone, enrichment_source: data!.enrichment_source } : {};
-  const { error } = await db().from("contacts").update({ ...PIPELINE_RESET, ...keep }).eq("id", id);
+  const manual = isManualPhone(data?.enrichment_source);
+  const keep = manual ? { phone: data!.phone, enrichment_source: data!.enrichment_source } : {};
+  // Se conserva la procedencia de lo que vino de la base o se editó a mano; lo del bot se vuelve a buscar.
+  const prov = (data?.profile as Profile | null)?.provenance ?? {};
+  const keptProv = Object.fromEntries(Object.entries(prov).filter(([k]) => (CONTACT_FIELDS.includes(k) && k !== "phone") || (k === "phone" && manual)));
+  const profile = Object.keys(keptProv).length ? { ...withProvenance(null, {}), provenance: keptProv } : null;
+  const { error } = await db().from("contacts").update({ ...PIPELINE_RESET, ...keep, profile }).eq("id", id);
   if (error) throw new Error(error.message);
   await logEvent(id, "system", `Vuelve a pendiente: ${reason}`);
 }

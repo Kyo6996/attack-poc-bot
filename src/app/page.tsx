@@ -5,6 +5,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { Stats } from "@/lib/stats";
 import type { CallRow, Contact, ContactStatus, EmailKind, EmailRow, EventRow, Meeting, SalesRep, SandboxProfile } from "@/lib/types";
 import { maskEmail, maskPhone } from "@/lib/util";
+import { provenanceRows } from "@/lib/provenance";
 import { Editor, type Field } from "./editor";
 import { downloadTemplate, exportContacts, xlsxToCsv } from "./xlsx";
 
@@ -547,6 +548,7 @@ export default function Dashboard() {
                           <tr className="detail">
                             <td colSpan={7}>
                               <ProfileCard c={c} onChange={() => setReviewing(c)} />
+                              <ProvenanceTable c={c} />
                               <PhoneChooser
                                 c={c}
                                 live={state?.settings?.live_numbers ?? []}
@@ -1194,5 +1196,54 @@ function PhoneChooser({ c, live, onDone }: { c: Contact; live: string[]; onDone:
         </button>
       </div>
     </div>
+  );
+}
+
+function ProvenanceTable({ c }: { c: Contact }) {
+  const rows = provenanceRows(c);
+  const fmt = (iso?: string | null) =>
+    iso ? new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(iso)) : "";
+  return (
+    <details className="ficha prov">
+      <summary>
+        <b>Origen de los datos</b> <span className="s">· {rows.length} campos · de dónde salió cada dato y cuándo</span>
+      </summary>
+      <div className="tablewrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Campo</th>
+              <th>Valor</th>
+              <th>Fuente</th>
+              <th>Detalle</th>
+              <th>Fecha</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i}>
+                <td className="s">{r.field}</td>
+                <td>{r.value.length > 60 ? `${r.value.slice(0, 60)}…` : r.value}</td>
+                <td>{r.source}</td>
+                <td className="s">
+                  {r.detail}
+                  {r.url && (
+                    <>
+                      {r.detail ? " · " : ""}
+                      <a href={r.url} target="_blank" rel="noreferrer">
+                        ver fuente
+                      </a>
+                    </>
+                  )}
+                </td>
+                <td className="s" style={{ whiteSpace: "nowrap" }}>
+                  {fmt(r.at)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
   );
 }
