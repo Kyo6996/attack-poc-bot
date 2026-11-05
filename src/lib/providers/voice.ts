@@ -48,6 +48,15 @@ const QUALIFICATION_PROPS = {
   celular: { type: "string", description: "Celular confirmado por la persona, solo dígitos." },
 };
 
+// Frases que el agente dice mientras la herramienta trabaja, para que no haya silencios.
+// Se elige una variante por llamada para que no suene repetido.
+const pick = (xs: string[]) => xs[Math.floor(Math.random() * xs.length)];
+const waitMessages = (start: string[], delayed: string[]) => [
+  { type: "request-start", content: pick(start) },
+  { type: "request-response-delayed", content: pick(delayed), timingMilliseconds: 3500 },
+  { type: "request-failed", content: "Uy, se me trabó el sistema un momentico. Dame un segundo." },
+];
+
 export const VAPI_TOOLS = [
   {
     type: "function",
@@ -55,6 +64,12 @@ export const VAPI_TOOLS = [
       name: "consultar_disponibilidad",
       description: "Devuelve los próximos horarios libres para la conversación con el especialista (hora Colombia).",
       parameters: { type: "object", properties: {} },
+    },
+    get messages() {
+      return waitMessages(
+        ["Dame un segundito y reviso la agenda…", "Listo, déjame mirar los espacios que tenemos…", "Mmm, ya te reviso la agenda…"],
+        ["Ya casi, está cargando…", "Un momentico más…"],
+      );
     },
   },
   {
@@ -72,6 +87,12 @@ export const VAPI_TOOLS = [
         },
         required: ["inicio_iso"],
       },
+    },
+    get messages() {
+      return waitMessages(
+        ["Perfecto, ya te lo dejo agendado…", "Listo, lo agendo de una…", "Dale, ya mismo lo registro…"],
+        ["Ya casi queda, un segundito…", "Está terminando de guardar…"],
+      );
     },
   },
   {
@@ -117,7 +138,7 @@ export function buildAssistant(contact: Contact, voice: AgentVoice, mode: "call"
     model: {
       provider: env.vapiModelProvider(),
       model: env.vapiModel(),
-      temperature: 0.6,
+      temperature: 0.7,
       messages: [{ role: "system", content: buildSystemPrompt(contact, voice.agentName) + (mode === "preview" ? DEMO_NOTE : "") }],
       tools: mode === "call" ? VAPI_TOOLS : [{ type: "endCall" }],
     },
