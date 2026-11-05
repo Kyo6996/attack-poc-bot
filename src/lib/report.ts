@@ -264,7 +264,7 @@ export async function claudeAnalysis(r: DailyReport): Promise<Analysis | null> {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: env.anthropicModel(), max_tokens: 1500, messages: [{ role: "user", content: claudePrompt(r) }] }),
+      body: JSON.stringify({ model: env.anthropicModel(), max_tokens: 4000, messages: [{ role: "user", content: claudePrompt(r) }] }),
       signal: AbortSignal.timeout(45000),
     });
     if (!res.ok) return null;

@@ -93,7 +93,7 @@ const nodes = [
       headerParameters: { parameters: [{ name: "anthropic-version", value: "2023-06-01" }] },
       sendBody: true,
       specifyBody: "json",
-      jsonBody: "={{ JSON.stringify({ model: 'claude-haiku-5-5', max_tokens: 1500, messages: [{ role: 'user', content: $json.claude_prompt }] }) }}",
+      jsonBody: "={{ JSON.stringify({ model: 'claude-haiku-5-5', max_tokens: 4000, messages: [{ role: 'user', content: $json.claude_prompt }] }) }}",
       options: { timeout: 60000 },
     },
   },
