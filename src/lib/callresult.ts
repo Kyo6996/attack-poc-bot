@@ -48,7 +48,11 @@ export async function finishVapiCall(contactId: string, m: VapiEnd, overrideSkip
       status = "call_failed";
       skip =
         overrideSkip ??
-        (/customer-ended-call|silence-timed-out/.test(reason) ? "Llamada fallida: se cortó antes de terminar" : `Llamada fallida: ${reason || "error técnico"}`);
+        (/twilio-completed-call/.test(reason)
+          ? "Llamada fallida: colgaron antes de que el asistente hablara (p. ej., durante el aviso de cuenta de prueba de Twilio)"
+          : /customer-ended-call|silence-timed-out/.test(reason)
+            ? "Llamada fallida: se cortó antes de terminar"
+            : `Llamada fallida: ${reason || "error técnico"}`);
     }
     summary = summary ?? skip;
   }
