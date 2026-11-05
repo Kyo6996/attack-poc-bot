@@ -1,12 +1,15 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { getSettings } from "@/lib/settings";
+import { reconcileStuckCalls } from "@/lib/reconcile";
 import { computeStats } from "@/lib/stats";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  // Revisa en segundo plano llamadas que quedaron abiertas porque el aviso de Vapi no llegó.
+  after(() => reconcileStuckCalls().catch(() => undefined));
   try {
     const [contacts, meetings, events, sandbox, reps, emails, calls, stats] = await Promise.all([
       db().from("contacts").select("*").order("created_at").order("id"),

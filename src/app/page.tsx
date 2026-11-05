@@ -154,6 +154,14 @@ export default function Dashboard() {
     load();
   }
 
+  async function hangup(c: Contact) {
+    if (!confirm(`¿Liberar la llamada de ${c.first_name}? Si sigue activa se cortará.`)) return;
+    const res = await fetch(`/api/contacts/${c.id}/hangup`, { method: "POST" });
+    const json = await res.json();
+    setMsg(res.ok ? `${c.first_name}: ${json.result}` : `Error: ${json.error}`);
+    load();
+  }
+
   async function authorizeNumber(phone: string, allow: boolean) {
     if (allow && !confirm(`¿Esta persona dio su consentimiento para recibir una llamada real al ${phone}?`)) return;
     const err = await send("/api/settings", "POST", allow ? { authorize: phone } : { revoke: phone });
@@ -534,6 +542,11 @@ export default function Dashboard() {
                             {!RUNNABLE.includes(c.status) && c.status !== "calling" && (
                               <button className="sm" onClick={() => reprocess(c)} title="Volver a procesar desde cero">
                                 ↺
+                              </button>
+                            )}
+                            {c.status === "calling" && Date.now() - Date.parse(c.updated_at) > 60_000 && (
+                              <button className="sm" onClick={() => hangup(c)} title="La llamada ya terminó pero sigue marcada: ciérrala">
+                                Liberar llamada
                               </button>
                             )}
                             <button className="sm" onClick={() => setEditing({ kind: "contact", row: c })} disabled={c.status === "calling"}>
