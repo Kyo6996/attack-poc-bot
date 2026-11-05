@@ -3,6 +3,7 @@ import { claimContact, db, logEvent, releaseContact, updateContact } from "./db"
 import { isManualPhone } from "./records";
 import { env } from "./env";
 import { enrichContact, webPhone, type EnrichmentResult } from "./providers/enrichment";
+import { findWorkEmail, MIN_SCORE } from "./providers/hunter";
 import { findLinkedInProfile } from "./providers/linkedin";
 import { startCall } from "./providers/voice";
 import { fullName, type Contact, type ContactStatus } from "./types";
@@ -100,6 +101,11 @@ export async function advanceContact(c: Contact, opts: { allowCall: boolean }): 
       }
     }
 
+    // Correo profesional (Hunter) solo si falta y ya se conoce el dominio de la empresa.
+    if (contact.status === "linkedin_found" && !contact.email && contact.profile?.company?.domain) {
+      contact = await findEmailFor(contact);
+    }
+
     if (contact.status === "linkedin_found" && contact.phone && isManualPhone(contact.enrichment_source)) {
       contact = await updateContact(contact.id, { status: "phone_found" });
       await logEvent(contact.id, "enrichment", `Se usa el teléfono registrado a mano: ${maskPhone(contact.phone)}`, "success");
@@ -185,4 +191,37 @@ export async function prepareContacts(ids: string[]) {
     const { data } = await db().from("contacts").select("*").eq("id", id).maybeSingle();
     if (data && (data as Contact).status === "pending") await advanceContact(data as Contact, { allowCall: false });
   }
+}
+
+async function findEmailFor(contact: Contact): Promise<Contact> {
+  const domain = contact.profile!.company!.domain!;
+  const { found, error } = await findWorkEmail(contact.first_name, contact.last_name, domain);
+  if (error) {
+    await logEvent(contact.id, "enrichment", `Correo no consultado: ${error}`, "warn");
+    return contact;
+  }
+  if (!found) {
+    await logEvent(contact.id, "enrichment", `Hunter no encontró correo en ${domain}`);
+    return contact;
+  }
+  const trusted = found.score >= MIN_SCORE || found.status === "valid";
+  const profile = {
+    ...contact.profile!,
+    email: { value: found.email, score: found.score, status: found.status, source: "Hunter" },
+    phones: [...(contact.profile!.phones ?? []), ...found.phones.filter((p) => !(contact.profile!.phones ?? []).some((x) => x.value === p.value))],
+  };
+  const updated = await updateContact(contact.id, {
+    profile,
+    ...(trusted ? { email: found.email } : {}),
+    ...(!contact.title && found.position ? { title: found.position } : {}),
+  });
+  await logEvent(
+    contact.id,
+    "enrichment",
+    trusted
+      ? `Correo profesional encontrado: ${found.email} (confianza ${found.score}%${found.status ? `, ${found.status}` : ""})`
+      : `Correo probable con baja confianza (${found.score}%): ${found.email} — no se usa automáticamente`,
+    trusted ? "success" : "warn",
+  );
+  return updated;
 }

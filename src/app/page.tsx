@@ -980,6 +980,14 @@ function ProfileCard({ c, onChange }: { c: Contact; onChange: () => void }) {
                 ☎ {ph.value} <span className="s">· {ph.type} · {ph.source}</span>
               </div>
             ))}
+            {p.email && (
+              <div>
+                ✉ {p.email.value}{" "}
+                <span className={p.email.score >= 70 || p.email.status === "valid" ? "s ok-text" : "s warn-text"}>
+                  · {p.email.source} {p.email.score}%{p.email.status ? ` · ${p.email.status}` : ""}
+                </span>
+              </div>
+            )}
             {c.linkedin_url && (
               <div>
                 <a href={c.linkedin_url} target="_blank" rel="noreferrer">

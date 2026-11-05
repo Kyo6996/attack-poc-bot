@@ -99,6 +99,7 @@ export interface Profile {
   sources: { url: string; title: string }[];
   company: CompanyInfo | null;
   phones?: ContactPhone[];
+  email?: { value: string; score: number; status: string | null; source: string };
   searched_at: string;
   queries: number;
 }
