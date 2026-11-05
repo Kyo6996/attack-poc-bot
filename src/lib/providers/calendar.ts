@@ -207,6 +207,23 @@ export async function cancelGoogleEvent(eventId: string) {
   }
 }
 
+export type RsvpStatus = "accepted" | "declined" | "tentative" | "needsAction" | "cancelled";
+
+// Respuesta del lead a la invitación (lo que marcó en Google Calendar / Gmail).
+export async function attendeeResponse(eventId: string): Promise<RsvpStatus | null> {
+  const token = await googleAccessToken();
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(env.googleCalendarId())}/events/${encodeURIComponent(eventId)}`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000) },
+  );
+  if (res.status === 404 || res.status === 410) return "cancelled";
+  if (!res.ok) return null;
+  const ev = (await res.json()) as { status?: string; attendees?: { self?: boolean; organizer?: boolean; responseStatus?: RsvpStatus }[] };
+  if (ev.status === "cancelled") return "cancelled";
+  const guest = (ev.attendees ?? []).find((a) => !a.self && !a.organizer);
+  return guest?.responseStatus ?? null;
+}
+
 // Cambia el correo de un invitado; Google le envía la invitación a la dirección nueva.
 export async function replaceGoogleAttendee(eventId: string, oldEmail: string, newEmail: string, displayName: string) {
   const token = await googleAccessToken();

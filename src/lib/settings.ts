@@ -17,11 +17,14 @@ export interface ReportRecipient {
   area: string;
 }
 
-// Destinatarios del reporte diario y webhook de n8n que lo orquesta.
+export type ReportFrequency = "diario" | "semanal" | "quincenal" | "mensual";
+
+// Destinatarios del reporte, cuándo se envía y webhook de n8n que lo orquesta.
 export interface ReportConfig {
   areas: string[];
   recipients: ReportRecipient[];
   n8n_webhook: string | null;
+  schedule: { frequency: ReportFrequency; hour: number };
 }
 
 function defaults(): AppSettings {
@@ -29,7 +32,7 @@ function defaults(): AppSettings {
     live_calls: true,
     agent_voice: { provider: env.vapiVoiceProvider(), voiceId: env.vapiVoiceId(), speed: 0.95, agentName: env.agentName() },
     live_numbers: env.voiceLiveNumbers(),
-    report: { areas: ["Gerencia", "Comercial", "Operaciones"], recipients: [], n8n_webhook: null },
+    report: { areas: ["Gerencia", "Comercial", "Operaciones"], recipients: [], n8n_webhook: null, schedule: { frequency: "diario", hour: 18 } },
   };
 }
 

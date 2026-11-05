@@ -2,6 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/app/ui";
+import { ReportTabs } from "./tabs";
+
+type Frequency = "diario" | "semanal" | "quincenal" | "mensual";
+const FREQ_HELP: Record<Frequency, string> = {
+  diario: "De lunes a viernes, con los datos del día.",
+  semanal: "Los viernes (último día hábil de la semana), con los datos de lunes a domingo.",
+  quincenal: "El día 15 y el último día del mes, con los datos de cada quincena.",
+  mensual: "El último día del mes, con los datos del mes completo.",
+};
+const hourLabel = (h: number) => `${h % 12 === 0 ? 12 : h % 12}:00 ${h < 12 ? "a. m." : "p. m."}`;
+const dayLabel = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" });
 
 interface Recipient {
   email: string;
@@ -12,6 +23,8 @@ interface Config {
   areas: string[];
   recipients: Recipient[];
   n8n_webhook: string | null;
+  schedule: { frequency: Frequency; hour: number };
+  next: string[];
   history: { message: string; level: string; created_at: string }[];
   key_set: boolean;
 }
@@ -66,7 +79,7 @@ export default function ReportePage() {
       <PageHeader
         eyebrow="Análisis"
         title="Reporte diario"
-        subtitle="PDF con indicadores, gráficos y decisiones operativas · lunes a viernes a las 6:00 p. m. vía n8n"
+        subtitle={`PDF con indicadores, gráficos y decisiones operativas · ${cfg.schedule.frequency} a las ${hourLabel(cfg.schedule.hour)} vía n8n`}
         actions={
           <>
             <a className="btn" href="/api/report/pdf" target="_blank" rel="noreferrer">
@@ -78,6 +91,7 @@ export default function ReportePage() {
           </>
         }
       />
+      <ReportTabs />
       {msg && (
         <div className="toast" onClick={() => setMsg("")}>
           {msg}
@@ -85,6 +99,41 @@ export default function ReportePage() {
       )}
 
       <div className="settings-grid">
+        <section className="card pad">
+          <h2 className="h">Cuándo se envía</h2>
+          <p className="s">El reporte cubre el período elegido y llega a la hora indicada. n8n consulta a Capricorne cada hora y envía solo cuando corresponde.</p>
+          <div className="freq-pick">
+            {(Object.keys(FREQ_HELP) as Frequency[]).map((f) => (
+              <button
+                key={f}
+                className={cfg.schedule.frequency === f ? "freq on" : "freq"}
+                disabled={busy}
+                onClick={() => save({ schedule: { ...cfg.schedule, frequency: f } }, `Reporte ${f} activado`)}
+              >
+                <b>{f.charAt(0).toUpperCase() + f.slice(1)}</b>
+                <span>{FREQ_HELP[f]}</span>
+              </button>
+            ))}
+          </div>
+          <div className="btnrow">
+            <label className="s" htmlFor="hora">
+              Hora de envío
+            </label>
+            <select id="hora" value={cfg.schedule.hour} disabled={busy} onChange={(e) => save({ schedule: { ...cfg.schedule, hour: Number(e.target.value) } }, `Hora de envío: ${hourLabel(Number(e.target.value))}`)}>
+              {Array.from({ length: 18 }, (_, i) => 6 + i).map((h) => (
+                <option key={h} value={h}>
+                  {hourLabel(h)}
+                </option>
+              ))}
+            </select>
+          </div>
+          {cfg.next.length > 0 && (
+            <p className="s" style={{ marginTop: 10 }}>
+              Próximos envíos: {cfg.next.map(dayLabel).join(" · ")} a las {hourLabel(cfg.schedule.hour)}.
+            </p>
+          )}
+        </section>
+
         <section className="card pad">
           <h2 className="h">Destinatarios</h2>
           <p className="s">Reciben el PDF al cierre de la jornada y cada vez que se pulsa "Enviar ahora".</p>

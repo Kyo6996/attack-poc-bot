@@ -16,6 +16,7 @@ const I = {
   plug: "M9 2v6M15 2v6M7 8h10v4a5 5 0 0 1-10 0V8ZM12 17v5",
   db: "M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3ZM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3",
   report: "M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1ZM14 3v5h5M9 17v-3M12 17v-6M15 17v-2",
+  calendar: "M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1ZM9 14l2 2 4-4",
   logout: "M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l-5-5 5-5M5 12h11",
   menu: "M4 6h16M4 12h16M4 18h16",
 };
@@ -28,7 +29,7 @@ function Icon({ d }: { d: string }) {
   );
 }
 
-const NAV: { title: string; items: { href: string; label: string; icon: keyof typeof I }[] }[] = [
+const NAV: { title: string; items: { href: string; label: string; icon: keyof typeof I; sub?: boolean }[] }[] = [
   {
     title: "Prospección",
     items: [
@@ -43,6 +44,7 @@ const NAV: { title: string; items: { href: string; label: string; icon: keyof ty
     items: [
       { href: "/sla", label: "Desempeño y SLA", icon: "chart" },
       { href: "/reporte", label: "Reporte diario", icon: "report" },
+      { href: "/reporte/calendario", label: "Calendario de envíos", icon: "calendar", sub: true },
     ],
   },
   { title: "Equipo", items: [{ href: "/comerciales", label: "Comerciales", icon: "team" }] },
@@ -93,7 +95,10 @@ export function Sidebar() {
     router.push("/login");
   }
 
-  const active = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
+  // Se marca solo la opción más específica que coincide con la ruta (p. ej. el submenú y no su padre).
+  const hrefs = NAV.flatMap((g) => g.items.map((i) => i.href));
+  const current = hrefs.filter((h) => (h === "/" ? path === "/" : path === h || path.startsWith(`${h}/`))).sort((a, b) => b.length - a.length)[0];
+  const active = (href: string) => href === current;
 
   return (
     <>
@@ -113,7 +118,7 @@ export function Sidebar() {
             <div key={g.title} className="sb-group">
               <div className="sb-title">{g.title}</div>
               {g.items.map((it) => (
-                <Link key={it.href} href={it.href} className={active(it.href) ? "sb-link on" : "sb-link"}>
+                <Link key={it.href} href={it.href} className={`sb-link${it.sub ? " sub" : ""}${active(it.href) ? " on" : ""}`}>
                   <Icon d={I[it.icon]} />
                   {it.label}
                 </Link>

@@ -1,6 +1,6 @@
 import "server-only";
 import PDFDocument from "pdfkit";
-import type { Analysis, DailyReport, DayKpis, ProspectAdvice } from "./report";
+import type { Analysis, LeadAdvice, PeriodKpis, Report } from "./report";
 
 const C = {
   accent: "#5b4bdb",
@@ -20,30 +20,33 @@ const M = 40;
 const CW = W - M * 2;
 
 const pct = (v: number | null) => (v === null ? "—" : `${Math.round(v * 100)}%`);
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-export async function renderReportPdf(r: DailyReport, a: Analysis, source: string): Promise<Buffer> {
-  const doc = new PDFDocument({ size: "A4", margin: M, bufferPages: true, info: { Title: `Reporte operativo ${r.date}`, Author: "Capricorne Project" } });
+export async function renderReportPdf(r: Report, a: Analysis, source: string): Promise<Buffer> {
+  const doc = new PDFDocument({ size: "A4", margin: M, bufferPages: true, info: { Title: `Reporte operativo ${r.period.title} ${r.period.from}`, Author: "Capricorne Project" } });
   const chunks: Buffer[] = [];
   doc.on("data", (c: Buffer) => chunks.push(c));
   const done = new Promise<Buffer>((res) => doc.on("end", () => res(Buffer.concat(chunks))));
+  const ai = /claude/i.test(source);
 
   header(doc, r);
   let y = 118;
-  const ai = /claude/i.test(source);
   y = summaryBox(doc, a, source, ai, y);
-  y = kpiGrid(doc, r.today, r.yesterday, y + 14);
-  y = sectionTitle(doc, "Embudo acumulado", y + 18);
+  y = kpiGrid(doc, r.current, r.previous, r.period.previous_label, y + 14);
+  y = sectionTitle(doc, "Embudo acumulado de leads", y + 18);
   y = funnel(doc, r, y);
 
   doc.addPage();
-  y = sectionTitle(doc, "Llamadas por hora (hoy)", M);
-  y = hourlyChart(doc, r, y);
-  y = sectionTitle(doc, "Resultado de las llamadas de hoy", y + 16);
-  y = outcomes(doc, r.today, y);
-  y = sectionTitle(doc, "Estado de la base", y + 16);
+  y = sectionTitle(doc, `Llamadas por ${r.timeline_unit} (${r.period.title === "diario" ? "hoy" : "período"})`, M);
+  y = timelineChart(doc, r, y);
+  y = sectionTitle(doc, "Resultado de las llamadas del período", y + 14);
+  y = outcomes(doc, r.current, y);
+  y = sectionTitle(doc, "Estado de la base de leads", y + 14);
   y = hbars(doc, r.pipeline.slice(0, 8), y, C.accent);
-  y = sectionTitle(doc, "SLA de primer contacto (24 h)", y + 16);
+  y = ensure(doc, y, 230);
+  y = sectionTitle(doc, "SLA de primer contacto (24 h)", y + 14);
   y = slaBar(doc, r, y);
+  y = slaExplainer(doc, y + 8);
 
   doc.addPage();
   y = sectionTitle(doc, "Decisiones operativas sugeridas", M, ai);
@@ -52,23 +55,32 @@ export async function renderReportPdf(r: DailyReport, a: Analysis, source: strin
     y = sectionTitle(doc, "Riesgos y observaciones", y + 12, ai);
     y = bullets(doc, a.risks, y);
   }
-  if (a.prospects.length) {
+  if (a.leads.length) {
     y = ensure(doc, y, 160);
-    y = sectionTitle(doc, "Qué ofrecer a cada prospecto", y + 12, ai);
-    y = prospectCards(doc, a.prospects, y);
+    y = sectionTitle(doc, "Qué ofrecer a cada lead", y + 12, ai);
+    y = leadCards(doc, a.leads, y);
   }
-  y = ensure(doc, y, 120);
-  y = sectionTitle(doc, "Agenda de mañana", y + 12);
-  y = table(doc, ["Hora", "Cliente", "Empresa", "Comercial"], r.tomorrow.map((t) => [t.time, t.contact, t.company ?? "—", t.rep ?? "—"]), [70, 160, 150, CW - 380], y, "Sin reuniones agendadas para mañana.");
+  y = ensure(doc, y, 150);
+  y = sectionTitle(doc, "Comerciales: leads y confirmación de reuniones", y + 12);
+  y = table(
+    doc,
+    ["Comercial", "Área", "Leads", "Reun. período", "Próximas", "Confirm.", "Pend.", "Rech.", "% confirm."],
+    r.reps.map((p) => [p.name, p.area, String(p.leads), String(p.meetings_period), String(p.upcoming), String(p.confirmed), String(p.pending), String(p.declined), pct(p.confirmation_rate)]),
+    [100, 78, 40, 62, 50, 48, 38, 38, CW - 454],
+    y,
+    "No hay comerciales activos.",
+  );
+  doc.fillColor(C.muted).font("Helvetica-Oblique").fontSize(7.5).text("Confirmación = el lead aceptó la invitación en Google Calendar. Se mide sobre las reuniones del período y las próximas.", M, y + 4, { width: CW });
+  y += 20;
   y = ensure(doc, y, 110);
-  y = sectionTitle(doc, "Equipo comercial", y + 12);
-  y = table(doc, ["Comercial", "Área", "Reuniones hoy", "Próximas"], r.reps.map((p) => [p.name, p.area, String(p.today), String(p.upcoming)]), [170, 150, 95, CW - 415], y, "No hay comerciales activos.");
+  y = sectionTitle(doc, r.agenda_label, y + 12);
+  y = table(doc, ["Cuándo", "Lead", "Empresa", "Comercial", "Invitación"], r.agenda.map((t) => [t.when, t.lead, t.company ?? "—", t.rep ?? "—", t.rsvp]), [105, 120, 110, 100, CW - 435], y, "Sin reuniones agendadas en este rango.");
   y = ensure(doc, y, 110);
   y = sectionTitle(doc, "Atención y costos de datos", y + 12);
   bullets(
     doc,
     [
-      `Por revisar (identidad): ${r.attention.needs_review} · Sin teléfono: ${r.attention.without_phone} · Llamadas trabadas: ${r.attention.stuck_calls} · Errores hoy: ${r.attention.errors}`,
+      `Por revisar (identidad): ${r.attention.needs_review} · Sin teléfono: ${r.attention.without_phone} · Llamadas trabadas: ${r.attention.stuck_calls} · Errores en el período: ${r.attention.errors}`,
       `SignalHire: ${r.costs.signalhire_credits ?? "—"} crédito(s) restantes · Apollo: ${r.costs.apollo_used ?? "—"}/${r.costs.apollo_limit ?? "—"} consultas hoy · Hunter: ${r.costs.hunter ? "activo" : "sin configurar"}`,
       ...r.attention.skipped.map((s) => `Omitidos por "${s.reason}": ${s.count}`),
     ],
@@ -90,11 +102,11 @@ function ensure(doc: Doc, y: number, need: number) {
   return y;
 }
 
-function header(doc: Doc, r: DailyReport) {
+function header(doc: Doc, r: Report) {
   doc.rect(0, 0, W, 96).fill(C.accent);
   doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(9).text("CAPRICORNE PROJECT · ANDICOM 2026", M, 26, { characterSpacing: 1 });
-  doc.font("Helvetica-Bold").fontSize(20).text("Reporte operativo diario", M, 40);
-  doc.font("Helvetica").fontSize(10.5).text(`${cap(r.label)} · generado a las ${r.generated_label}`, M, 66);
+  doc.font("Helvetica-Bold").fontSize(20).text(`Reporte operativo ${r.period.title}`, M, 40);
+  doc.font("Helvetica").fontSize(10.5).text(`${cap(r.period.label)} · generado el ${r.generated_label}`, M, 66);
   if (r.partial) {
     const label = "CORTE PARCIAL";
     doc.font("Helvetica-Bold").fontSize(8.5);
@@ -104,13 +116,14 @@ function header(doc: Doc, r: DailyReport) {
   }
 }
 
-function footer(doc: Doc, r: DailyReport) {
+function footer(doc: Doc, r: Report) {
   const range = doc.bufferedPageRange();
   for (let i = 0; i < range.count; i++) {
     doc.switchToPage(i);
     doc.page.margins.bottom = 0;
     doc.fillColor(C.muted).font("Helvetica").fontSize(8);
-    doc.text(`Capricorne Project · Reporte ${r.date} · Página ${i + 1} de ${range.count}`, M, 815, { width: CW, align: "center", lineBreak: false });
+    const span = r.period.from === r.period.to ? r.period.from : `${r.period.from} a ${r.period.to}`;
+    doc.text(`Capricorne Project · Reporte ${r.period.title} ${span} · Página ${i + 1} de ${range.count}`, M, 815, { width: CW, align: "center", lineBreak: false });
   }
 }
 
@@ -132,7 +145,7 @@ function aiTag(doc: Doc, x: number, y: number, label = "IA · CLAUDE") {
 
 function summaryBox(doc: Doc, a: Analysis, source: string, ai: boolean, y: number) {
   const note = ai
-    ? "Redactado por Claude (Anthropic) a partir de los datos del día. Es una recomendación: valídala antes de actuar."
+    ? "Redactado por Claude (Anthropic) a partir de los datos del período. Es una recomendación: valídala antes de actuar."
     : "Resumen automático por reglas de operación (la IA no estuvo disponible en este envío).";
   doc.font("Helvetica").fontSize(10);
   const th = doc.heightOfString(a.summary, { width: CW - 32, lineGap: 1.5 });
@@ -143,41 +156,16 @@ function summaryBox(doc: Doc, a: Analysis, source: string, ai: boolean, y: numbe
   if (ai) doc.roundedRect(M, y, CW, h, 10).lineWidth(1.4).strokeColor(C.accent).stroke();
   doc.rect(M, y + 10, 4, h - 20).fill(C.accent);
   doc.fillColor(C.accent).font("Helvetica-Bold").fontSize(9).text(ai ? "ANÁLISIS CON INTELIGENCIA ARTIFICIAL" : "RESUMEN EJECUTIVO", M + 16, y + 14);
-  if (ai) aiTag(doc, M + CW - 92, y + 11, source.replace(/^Claude/i, "CLAUDE").toUpperCase().slice(0, 22));
+  if (ai) aiTag(doc, M + CW - 92, y + 11, source.toUpperCase().slice(0, 22));
   doc.fillColor(C.ink).font("Helvetica").fontSize(10).text(a.summary, M + 16, y + 32, { width: CW - 32, lineGap: 1.5 });
   doc.fillColor(C.muted).font("Helvetica-Oblique").fontSize(7.5).text(note, M + 16, y + 38 + th, { width: CW - 32 });
   return y + h;
 }
 
-function prospectCards(doc: Doc, list: ProspectAdvice[], y: number) {
-  const inner = CW - 28;
-  for (const p of list) {
-    const rows: [string, string][] = [
-      ["Ofrecer", p.offer],
-      ["Cómo abrir", p.pitch],
-      ["Siguiente paso", p.next_step],
-    ];
-    doc.font("Helvetica").fontSize(9);
-    const hs = rows.map(([, v]) => doc.heightOfString(v ?? "", { width: inner - 90 }));
-    const h = 30 + hs.reduce((a, b) => a + b + 5, 0);
-    y = ensure(doc, y, h + 8);
-    doc.roundedRect(M, y, CW, h, 8).lineWidth(0.9).strokeColor(C.accent).fillAndStroke("#fbfaff", C.accent);
-    doc.fillColor(C.ink).font("Helvetica-Bold").fontSize(10.5).text(p.name, M + 14, y + 10, { continued: !!p.company });
-    if (p.company) doc.fillColor(C.muted).font("Helvetica").fontSize(9.5).text(`  ·  ${p.company}`);
-    let yy = y + 28;
-    rows.forEach(([k, v], i) => {
-      doc.fillColor(C.accent).font("Helvetica-Bold").fontSize(8.5).text(k.toUpperCase(), M + 14, yy + 1, { width: 86 });
-      doc.fillColor(C.ink).font("Helvetica").fontSize(9).text(v ?? "", M + 104, yy, { width: inner - 90 });
-      yy += hs[i] + 5;
-    });
-    y += h + 8;
-  }
-  return y;
-}
-
-function kpiGrid(doc: Doc, t: DayKpis, p: DayKpis, y: number) {
+function kpiGrid(doc: Doc, t: PeriodKpis, p: PeriodKpis, prevLabel: string, y: number) {
+  const vs = prevLabel === "ayer" ? "vs. ayer" : "vs. período anterior";
   const items: [string, string, number | null][] = [
-    ["Contactos nuevos", String(t.new_contacts), t.new_contacts - p.new_contacts],
+    ["Leads nuevos", String(t.new_leads), t.new_leads - p.new_leads],
     ["Llamadas", String(t.calls), t.calls - p.calls],
     ["Contestadas", String(t.answered), t.answered - p.answered],
     ["Reuniones agendadas", String(t.meetings), t.meetings - p.meetings],
@@ -193,26 +181,26 @@ function kpiGrid(doc: Doc, t: DayKpis, p: DayKpis, y: number) {
   items.forEach(([label, value, delta], i) => {
     const x = M + (i % cols) * (w + gap);
     const yy = y + Math.floor(i / cols) * (h + gap);
-    doc.roundedRect(x, yy, w, h, 8).lineWidth(0.8).strokeColor(C.border).fillAndStroke(C.panel, C.border);
+    doc.roundedRect(x, yy, w, h, 8).lineWidth(0.8).fillAndStroke(C.panel, C.border);
     doc.fillColor(C.muted).font("Helvetica").fontSize(8.5).text(label, x + 10, yy + 9, { width: w - 20 });
     doc.fillColor(C.ink).font("Helvetica-Bold").fontSize(19).text(value, x + 10, yy + 23);
     if (delta !== null) {
       const up = delta > 0;
       const color = label === "Sin respuesta" ? (up ? C.err : C.ok) : up ? C.ok : delta < 0 ? C.err : C.muted;
-      doc.fillColor(color).font("Helvetica").fontSize(8).text(`${delta > 0 ? "+" : ""}${delta} vs. ayer`, x + 10, yy + 47);
+      doc.fillColor(color).font("Helvetica").fontSize(8).text(`${delta > 0 ? "+" : ""}${delta} ${vs}`, x + 10, yy + 47);
     }
   });
   return y + 2 * h + gap;
 }
 
-function funnel(doc: Doc, r: DailyReport, y: number) {
+function funnel(doc: Doc, r: Report, y: number) {
   const max = Math.max(1, ...r.funnel.map((f) => f.value));
   const labelW = 150;
   const barMax = CW - labelW - 110;
+  const base = r.funnel[0]?.value ?? 0;
   r.funnel.forEach((f, i) => {
     const yy = y + i * 24;
     const w = Math.max(2, (f.value / max) * barMax);
-    const base = r.funnel[0].value;
     doc.fillColor(C.ink).font("Helvetica").fontSize(9.5).text(f.label, M, yy + 4, { width: labelW });
     doc.roundedRect(M + labelW, yy, w, 17, 4).fillOpacity(0.25 + 0.75 * (1 - i / r.funnel.length)).fill(C.accent).fillOpacity(1);
     doc.fillColor(C.ink).font("Helvetica-Bold").fontSize(9.5).text(String(f.value), M + labelW + w + 6, yy + 4);
@@ -221,22 +209,23 @@ function funnel(doc: Doc, r: DailyReport, y: number) {
   return y + r.funnel.length * 24;
 }
 
-function hourlyChart(doc: Doc, r: DailyReport, y: number) {
-  const h = 130;
-  const peak = Math.max(1, ...r.hourly.map((b) => b.answered + b.missed + b.failed));
+function timelineChart(doc: Doc, r: Report, y: number) {
+  const h = 120;
+  const peak = Math.max(1, ...r.timeline.map((b) => b.answered + b.missed + b.failed));
   const step = Math.max(1, Math.ceil(peak / 4));
   const ticks = Math.ceil(peak / step);
   const max = step * ticks;
-  const n = r.hourly.length;
+  const n = r.timeline.length;
   const slot = CW / n;
-  const bw = slot * 0.6;
+  const bw = Math.min(28, slot * 0.6);
   doc.moveTo(M, y + h).lineTo(M + CW, y + h).lineWidth(0.6).strokeColor(C.border).stroke();
   for (let g = 1; g <= ticks; g++) {
     const gy = y + h - (h * g) / ticks;
     doc.moveTo(M, gy).lineTo(M + CW, gy).lineWidth(0.3).strokeColor(C.border).dash(2, { space: 3 }).stroke().undash();
     doc.fillColor(C.muted).font("Helvetica").fontSize(7).text(String(step * g), M - 18, gy - 4, { width: 14, align: "right" });
   }
-  r.hourly.forEach((b, i) => {
+  const showEvery = n > 16 ? 2 : 1;
+  r.timeline.forEach((b, i) => {
     const x = M + i * slot + (slot - bw) / 2;
     let top = y + h;
     for (const [v, color] of [
@@ -249,7 +238,7 @@ function hourlyChart(doc: Doc, r: DailyReport, y: number) {
       top -= bh;
       doc.rect(x, top, bw, bh).fill(color);
     }
-    doc.fillColor(C.muted).font("Helvetica").fontSize(7).text(b.hour.slice(0, 2), x - 4, y + h + 4, { width: bw + 8, align: "center" });
+    if (i % showEvery === 0) doc.fillColor(C.muted).font("Helvetica").fontSize(6.5).text(b.label, M + i * slot - 6, y + h + 4, { width: slot * showEvery + 12, align: "center" });
   });
   legend(doc, y + h + 18, [
     ["Contestadas", C.ok],
@@ -268,7 +257,7 @@ function legend(doc: Doc, y: number, items: [string, string][]) {
   }
 }
 
-function outcomes(doc: Doc, t: DayKpis, y: number) {
+function outcomes(doc: Doc, t: PeriodKpis, y: number) {
   const parts: [string, number, string][] = [
     ["Reunión agendada", t.meetings, C.accent],
     ["Contestó sin agendar", Math.max(0, t.answered - t.meetings), C.ok],
@@ -277,7 +266,7 @@ function outcomes(doc: Doc, t: DayKpis, y: number) {
   ];
   const total = parts.reduce((s, p) => s + p[1], 0);
   if (!total) {
-    doc.fillColor(C.muted).font("Helvetica").fontSize(9.5).text("Sin llamadas terminadas hoy.", M, y);
+    doc.fillColor(C.muted).font("Helvetica").fontSize(9.5).text("Sin llamadas terminadas en el período.", M, y);
     return y + 16;
   }
   let x = M;
@@ -308,11 +297,11 @@ function hbars(doc: Doc, rows: { label: string; value: number }[], y: number, co
   return y + rows.length * 19;
 }
 
-function slaBar(doc: Doc, r: DailyReport, y: number) {
+function slaBar(doc: Doc, r: Report, y: number) {
   const s = r.sla;
   const total = s.met + s.breached + s.pending;
   if (!total) {
-    doc.fillColor(C.muted).font("Helvetica").fontSize(9.5).text("Aún no hay contactos para medir el SLA.", M, y);
+    doc.fillColor(C.muted).font("Helvetica").fontSize(9.5).text("Aún no hay leads para medir el SLA.", M, y);
     return y + 16;
   }
   let x = M;
@@ -339,6 +328,31 @@ function slaBar(doc: Doc, r: DailyReport, y: number) {
   return y + 58;
 }
 
+const SLA_TEXT: [string, string][] = [
+  ["Qué mide", "Que cada lead con consentimiento reciba su primer intento de llamada dentro de las 24 horas siguientes a su carga en Capricorne (formulario QR, importación o registro manual)."],
+  ["Estados", "A tiempo: el primer intento ocurrió antes de 24 h. Vencido: ocurrió después, o pasaron 24 h sin intento. En plazo: aún no se llama pero quedan horas. No aplica: sin consentimiento u omitido antes de llamar (sin perfil o sin celular)."],
+  ["Cumplimiento", "A tiempo ÷ (A tiempo + Vencido). Los leads en plazo no cuentan hasta que se resuelven."],
+  ["Efectividad", "Tasa de contacto = llamadas contestadas ÷ llamadas terminadas. Tasa de aceptación = reuniones agendadas ÷ llamadas contestadas. Confirmación = reuniones aceptadas por el lead en Google Calendar."],
+];
+
+// Cómo calcula Capricorne el SLA y la efectividad de las llamadas.
+function slaExplainer(doc: Doc, y: number) {
+  const inner = CW - 28;
+  doc.font("Helvetica").fontSize(8.5);
+  const hs = SLA_TEXT.map(([, v]) => doc.heightOfString(v, { width: inner - 80 }));
+  const h = 30 + hs.reduce((a, b) => a + b + 5, 0);
+  y = ensure(doc, y, h);
+  doc.roundedRect(M, y, CW, h, 8).lineWidth(0.8).fillAndStroke(C.panel, C.border);
+  doc.fillColor(C.ink).font("Helvetica-Bold").fontSize(9.5).text("Cómo mide Capricorne el SLA y la efectividad", M + 14, y + 10);
+  let yy = y + 27;
+  SLA_TEXT.forEach(([k, v], i) => {
+    doc.fillColor(C.accent).font("Helvetica-Bold").fontSize(8).text(k.toUpperCase(), M + 14, yy + 1, { width: 76 });
+    doc.fillColor(C.ink).font("Helvetica").fontSize(8.5).text(v, M + 94, yy, { width: inner - 80 });
+    yy += hs[i] + 5;
+  });
+  return y + h;
+}
+
 function decisions(doc: Doc, a: Analysis, y: number) {
   if (!a.decisions.length) {
     doc.fillColor(C.muted).font("Helvetica").fontSize(9.5).text("Sin acciones pendientes: la operación está al día.", M, y);
@@ -358,6 +372,32 @@ function decisions(doc: Doc, a: Analysis, y: number) {
     doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(7.5).text(prio.toUpperCase(), M + 12, y + 13, { width: 50, align: "center" });
     doc.fillColor(C.ink).font("Helvetica-Bold").fontSize(10).text(d.action, M + 74, y + 9, { width: CW - 90 });
     doc.fillColor(C.muted).font("Helvetica").fontSize(9).text(d.reason ?? "", M + 74, y + 11 + ah, { width: CW - 90 });
+    y += h + 8;
+  }
+  return y;
+}
+
+function leadCards(doc: Doc, list: LeadAdvice[], y: number) {
+  const inner = CW - 28;
+  for (const p of list) {
+    const rows: [string, string][] = [
+      ["Ofrecer", p.offer],
+      ["Cómo abrir", p.pitch],
+      ["Siguiente paso", p.next_step],
+    ];
+    doc.font("Helvetica").fontSize(9);
+    const hs = rows.map(([, v]) => doc.heightOfString(v ?? "", { width: inner - 90 }));
+    const h = 30 + hs.reduce((a, b) => a + b + 5, 0);
+    y = ensure(doc, y, h + 8);
+    doc.roundedRect(M, y, CW, h, 8).lineWidth(0.9).fillAndStroke("#fbfaff", C.accent);
+    doc.fillColor(C.ink).font("Helvetica-Bold").fontSize(10.5).text(p.name, M + 14, y + 10, { continued: !!p.company });
+    if (p.company) doc.fillColor(C.muted).font("Helvetica").fontSize(9.5).text(`  ·  ${p.company}`);
+    let yy = y + 28;
+    rows.forEach(([k, v], i) => {
+      doc.fillColor(C.accent).font("Helvetica-Bold").fontSize(8.5).text(k.toUpperCase(), M + 14, yy + 1, { width: 86 });
+      doc.fillColor(C.ink).font("Helvetica").fontSize(9).text(v ?? "", M + 104, yy, { width: inner - 90 });
+      yy += hs[i] + 5;
+    });
     y += h + 8;
   }
   return y;
@@ -384,7 +424,7 @@ function table(doc: Doc, head: string[], rows: string[][], widths: number[], y: 
   doc.rect(M, y, CW, rowH).fill(C.panel);
   let x = M;
   head.forEach((h, i) => {
-    doc.fillColor(C.muted).font("Helvetica-Bold").fontSize(8.5).text(h, x + 6, y + 6, { width: widths[i] - 10, lineBreak: false, ellipsis: true });
+    doc.fillColor(C.muted).font("Helvetica-Bold").fontSize(8).text(h, x + 5, y + 6, { width: widths[i] - 8, lineBreak: false, ellipsis: true });
     x += widths[i];
   });
   y += rowH;
@@ -392,7 +432,7 @@ function table(doc: Doc, head: string[], rows: string[][], widths: number[], y: 
     y = ensure(doc, y, rowH);
     x = M;
     row.forEach((cell, i) => {
-      doc.fillColor(C.ink).font("Helvetica").fontSize(9).text(cell, x + 6, y + 6, { width: widths[i] - 10, lineBreak: false, ellipsis: true });
+      doc.fillColor(C.ink).font("Helvetica").fontSize(8.5).text(cell, x + 5, y + 6, { width: widths[i] - 8, lineBreak: false, ellipsis: true });
       x += widths[i];
     });
     doc.moveTo(M, y + rowH).lineTo(M + CW, y + rowH).lineWidth(0.4).strokeColor(C.border).stroke();
@@ -400,5 +440,3 @@ function table(doc: Doc, head: string[], rows: string[][], widths: number[], y: 
   }
   return y;
 }
-
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);

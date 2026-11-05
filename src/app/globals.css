@@ -536,3 +536,40 @@ button.voice b { font-weight: 700; }
 .chip button { border: 0; background: transparent; padding: 0 0 0 6px; margin: 0; cursor: pointer; color: var(--muted); font-size: 13px; line-height: 1; box-shadow: none; }
 .chip button:disabled { opacity: .35; cursor: not-allowed; }
 .chip button:not(:disabled):hover { color: var(--err); }
+
+/* Pestañas y calendario del reporte */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: -6px 0 18px; }
+.tabs .tab { padding: 9px 14px; font-size: 13.5px; font-weight: 600; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; text-decoration: none; }
+.tabs .tab:hover { color: var(--text); }
+.tabs .tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+.freq-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
+@media (max-width: 560px) { .freq-pick { grid-template-columns: 1fr; } }
+.freq-pick .freq { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; padding: 10px 12px; height: auto; white-space: normal; }
+.freq-pick .freq span { font-size: 12px; color: var(--muted); font-weight: 400; }
+.freq-pick .freq.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent) inset; }
+.cal-layout { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .cal-layout { grid-template-columns: 1fr; } }
+.cal-layout .pad { margin: 0; }
+.cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.cal-dow { font-size: 11px; text-transform: uppercase; color: var(--muted); text-align: center; font-weight: 600; padding-bottom: 4px; }
+.cal-day { aspect-ratio: 1 / 1; min-height: 44px; height: auto; padding: 6px; display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); font-weight: 600; }
+.cal-day .n { font-size: 13px; }
+.cal-day .dot { align-self: flex-end; font-size: 11px; font-weight: 700; }
+.cal-day.sent { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
+.cal-day.fail { background: var(--err-bg); border-color: var(--err); color: var(--err); }
+.cal-day.planned:not(.sent) { border-style: dashed; border-color: var(--accent); color: var(--accent); }
+.cal-day.today .n { text-decoration: underline; text-underline-offset: 3px; }
+.cal-day.on { box-shadow: 0 0 0 2px var(--accent); }
+.cal-legend { display: flex; gap: 16px; margin-top: 12px; flex-wrap: wrap; }
+.cal-legend .lg { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--border); }
+.cal-legend .lg.sent { background: var(--ok); }
+.cal-legend .lg.planned { border: 1px dashed var(--accent); }
+.cal-legend .lg.fail { background: var(--err); }
+.cal-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 14px; }
+.cal-kpis div { border: 1px solid var(--border); border-radius: 10px; padding: 10px; background: var(--panel-2); }
+.cal-kpis b { display: block; font-size: 22px; }
+.cal-kpis span { font-size: 12px; color: var(--muted); }
+
+.sb-link.sub { padding-left: 34px; font-size: 13px; }
+.sb-link.sub svg { width: 15px; height: 15px; }
