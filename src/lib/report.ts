@@ -35,7 +35,28 @@ export interface DailyReport {
   tomorrow: { time: string; contact: string; company: string | null; rep: string | null }[];
   attention: { needs_review: number; stuck_calls: number; errors: number; without_phone: number; skipped: { reason: string; count: number }[] };
   costs: { signalhire_credits: number | null; apollo_used: number | null; apollo_limit: number | null; hunter: boolean; anthropic: boolean };
+  prospects: ProspectBrief[];
   recipients: ReportRecipient[];
+}
+
+// Lo mínimo de cada prospecto activo para que la IA recomiende qué ofrecerle (textos recortados para ahorrar tokens).
+export interface ProspectBrief {
+  name: string;
+  company: string | null;
+  title: string | null;
+  sector: string | null;
+  size: string | null;
+  status: string;
+  meeting: string | null;
+  rep: string | null;
+  interest: string | null;
+  project: string | null;
+  stage: string | null;
+  deadline: string | null;
+  deciders: string | null;
+  call: string | null;
+  hiring: number | null;
+  news: string | null;
 }
 
 export interface Decision {
@@ -44,10 +65,19 @@ export interface Decision {
   reason: string;
 }
 
+export interface ProspectAdvice {
+  name: string;
+  company: string | null;
+  offer: string;
+  pitch: string;
+  next_step: string;
+}
+
 export interface Analysis {
   summary: string;
   decisions: Decision[];
   risks: string[];
+  prospects: ProspectAdvice[];
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -101,7 +131,7 @@ export async function buildDailyReport(): Promise<DailyReport> {
   const [calls, yCalls, contacts, meetingsToday, meetingsY, upcoming, reps, events, stats, settings, shCredits, apollo] = await Promise.all([
     db().from("calls").select("*").gte("started_at", iso(start)).lt("started_at", iso(end)),
     db().from("calls").select("*").gte("started_at", iso(yStart)).lt("started_at", iso(start)),
-    db().from("contacts").select("id, first_name, last_name, company, status, phone, created_at, updated_at, call_id"),
+    db().from("contacts").select("id, first_name, last_name, company, title, status, phone, created_at, updated_at, call_id, event_notes, qualification, call_summary, profile"),
     db().from("meetings").select("id, sales_rep_id").gte("created_at", iso(start)).lt("created_at", iso(end)),
     db().from("meetings").select("id").gte("created_at", iso(yStart)).lt("created_at", iso(start)),
     db().from("meetings").select("starts_at, sales_rep_id, contact_id").gte("starts_at", now.toISOString()).order("starts_at"),
@@ -150,6 +180,8 @@ export async function buildDailyReport(): Promise<DailyReport> {
         rep: m.sales_rep_id ? (repById.get(m.sales_rep_id)?.name ?? null) : null,
       };
     });
+
+  const prospects = pickProspects(all, up, repById, timeFmt, tz);
 
   const repRows = (reps.data ?? [])
     .filter((r) => r.active)
@@ -200,8 +232,49 @@ export async function buildDailyReport(): Promise<DailyReport> {
       hunter: !!process.env.HUNTER_API_KEY,
       anthropic: !!env.anthropicKey(),
     },
+    prospects,
     recipients: settings.report.recipients,
   };
+}
+
+const cut = (v: unknown, n: number) => {
+  const t = typeof v === "string" ? v.replace(/s+/g, " ").trim() : "";
+  return t ? (t.length > n ? `${t.slice(0, n - 1)}…` : t) : null;
+};
+
+type Row = Record<string, unknown> & { id: string; status: string; updated_at: string };
+const RANK: Record<string, number> = { meeting_scheduled: 0, declined: 2, no_answer: 3, call_failed: 4, phone_found: 5 };
+
+// Prospectos que vale la pena trabajar: reunión agendada, ya hablaron con el bot o están listos para llamar.
+function pickProspects(all: Row[], up: { starts_at: string; sales_rep_id: string | null; contact_id: string }[], repById: Map<string, { name: string }>, timeFmt: Intl.DateTimeFormat, tz: string): ProspectBrief[] {
+  const dayFmt = new Intl.DateTimeFormat("es-CO", { timeZone: tz, weekday: "short", day: "numeric", month: "short" });
+  return all
+    .filter((c) => c.status in RANK || !!c.call_summary || !!c.qualification)
+    .sort((a, b) => (RANK[a.status] ?? 6) - (RANK[b.status] ?? 6) || Date.parse(b.updated_at) - Date.parse(a.updated_at))
+    .slice(0, 8)
+    .map((c) => {
+      const q = (c.qualification ?? {}) as Record<string, string>;
+      const p = (c.profile ?? {}) as { company?: { category?: string | null; attributes?: Record<string, string> | null; signals?: { jobs_total?: number; news?: { title: string }[] } } | null; headline?: string | null };
+      const m = up.find((x) => x.contact_id === c.id);
+      return {
+        name: `${c.first_name} ${c.last_name}`,
+        company: (c.company as string) ?? null,
+        title: cut(c.title ?? p.headline, 60),
+        sector: cut(p.company?.category, 40),
+        size: p.company?.attributes?.["Empleados (aprox.)"] ?? null,
+        status: STATUS_LABEL[c.status] ?? c.status,
+        meeting: m ? `${dayFmt.format(new Date(m.starts_at))} ${timeFmt.format(new Date(m.starts_at))}` : null,
+        rep: m?.sales_rep_id ? (repById.get(m.sales_rep_id)?.name ?? null) : null,
+        interest: cut(q.area_interes ? `${q.area_interes}. ${c.event_notes ?? ""}` : c.event_notes, 140),
+        project: cut(q.proyecto, 140),
+        stage: cut(q.etapa, 50),
+        deadline: cut(q.fecha_meta, 50),
+        deciders: cut(q.decisores, 80),
+        call: cut(c.call_summary, 220),
+        hiring: p.company?.signals?.jobs_total ?? null,
+        news: cut(p.company?.signals?.news?.[0]?.title, 90),
+      };
+    });
 }
 
 const pct = (v: number | null) => (v === null ? "—" : `${Math.round(v * 100)}%`);
@@ -228,20 +301,67 @@ export function rulesAnalysis(r: DailyReport): Analysis {
   if (r.attention.errors) risks.push(`${r.attention.errors} error(es) registrados hoy en la bitácora.`);
   if (r.sla.pending) risks.push(`${r.sla.pending} contacto(s) siguen dentro del plazo del SLA y deben llamarse pronto.`);
   for (const s of r.attention.skipped.slice(0, 2)) risks.push(`${s.count} omitido(s) por: ${s.reason}.`);
-  return { summary, decisions: d.slice(0, 7), risks };
+  return { summary, decisions: d.slice(0, 7), risks, prospects: r.prospects.slice(0, 6).map(ruleAdvice) };
 }
+
+const PORTFOLIO = [
+  { re: /\bia\b|inteligencia artificial|anal[ií]tica|datos|machine|modelo/i, offer: "Lenovo Hybrid AI: servidores ThinkSystem y workstations listos para IA", pitch: "Llevar sus casos de IA de piloto a producción con infraestructura propia y costos predecibles." },
+  { re: /servidor|infraestructura|data ?center|nube|cloud|almacen|virtualiz|hiperconverg|edge/i, offer: "Infraestructura ThinkSystem / ThinkAgile (hiperconvergencia y almacenamiento)", pitch: "Modernizar el centro de datos sin interrumpir la operación y con escalamiento por etapas." },
+  { re: /equipo|port[aá]til|\bpc|computador|dispositivo|renovaci|puesto|h[ií]brido|colaborador/i, offer: "Renovación de equipos ThinkPad / ThinkCentre con PCs con IA", pitch: "Renovar el parque de equipos con dispositivos más seguros y eficientes para trabajo híbrido." },
+  { re: /servicio|soporte|pago por uso|opex|suscrip|gesti[oó]n|outsourc/i, offer: "Lenovo TruScale: tecnología como servicio y Premier Support", pitch: "Pasar de compra a pago por uso, con soporte especializado y sin una inversión inicial grande." },
+];
+
+function ruleAdvice(p: ProspectBrief): ProspectAdvice {
+  const text = [p.interest, p.project, p.call, p.title].filter(Boolean).join(" ");
+  const hit = PORTFOLIO.find((x) => x.re.test(text)) ?? PORTFOLIO[2];
+  let next = "Seguimiento por correo con material de la línea sugerida";
+  if (p.meeting) next = `Preparar la reunión del ${p.meeting}${p.rep ? ` con ${p.rep}` : ""}`;
+  else if (p.status === "No contestó") next = "Reintentar la llamada mañana en otra franja";
+  else if (p.status === "Listo para llamar") next = "Incluir en la próxima ronda de llamadas";
+  return { name: p.name, company: p.company, offer: hit.offer, pitch: hit.pitch, next_step: next };
+}
+
+// Datos compactos para la IA: solo lo que sirve para decidir (menos tokens, menos costo).
+function compactForAI(r: DailyReport) {
+  return {
+    fecha: r.label,
+    parcial: r.partial,
+    hoy: r.today,
+    ayer: r.yesterday,
+    embudo: r.funnel.map((f) => `${f.label}: ${f.value}`),
+    llamadas_por_hora: r.hourly.filter((h) => h.answered + h.missed + h.failed > 0),
+    estado_base: r.pipeline,
+    sla: r.sla,
+    comerciales: r.reps,
+    agenda_manana: r.tomorrow,
+    atencion: r.attention,
+    creditos_signalhire_restantes: r.costs.signalhire_credits,
+    prospectos: r.prospects.map((p) => Object.fromEntries(Object.entries(p).filter(([, v]) => v !== null && v !== ""))),
+  };
+}
+
+const FORMAT = '{"summary":"","decisions":[{"priority":"alta|media|baja","action":"","reason":""}],"risks":[""],"prospects":[{"name":"","company":"","offer":"","pitch":"","next_step":""}]}';
 
 // Instrucción para Claude (la usa n8n y también el envío directo desde la app).
 export function claudePrompt(r: DailyReport): string {
-  const data = { ...r, recipients: undefined };
-  return `Eres analista de operaciones comerciales. Este es el corte diario de un bot que llama a contactos de la feria ANDICOM 2026 para agendar reuniones de 15 minutos con un comercial de Lenovo.
-${r.partial ? "El corte es PARCIAL (se envió antes de las 6:00 p. m.)." : ""}
-Datos del día en JSON:
-${JSON.stringify(data)}
-
-Responde SOLO con un JSON válido, en español de Colombia, sin texto adicional, con esta forma:
-{"summary": "4 a 6 líneas para gerencia: cómo fue el día frente a ayer y qué destaca", "decisions": [{"priority": "alta|media|baja", "action": "acción concreta con números", "reason": "por qué, citando el dato"}], "risks": ["riesgo u observación breve"]}
-Máximo 6 decisiones, ordenadas por prioridad. Usa solo los datos entregados; no inventes cifras.`;
+  return [
+    "Eres el analista comercial de un equipo que vende soluciones Lenovo en Colombia. Un bot llama a los contactos que visitaron el stand de Lenovo en ANDICOM 2026, los califica con 4 preguntas (proyecto, etapa, fecha meta, decisores) y agenda una reunión de 15 minutos con un comercial.",
+    "Portafolio que se puede ofrecer: equipos ThinkPad/ThinkCentre y PCs con IA; infraestructura ThinkSystem/ThinkAgile (servidores, hiperconvergencia, almacenamiento, edge); Lenovo Hybrid AI; TruScale (tecnología como servicio, pago por uso) y Premier Support.",
+    r.partial ? "El corte es PARCIAL: se pidió antes del cierre de las 6:00 p. m." : "Es el cierre de la jornada.",
+    "",
+    "DATOS:",
+    JSON.stringify(compactForAI(r)),
+    "",
+    "Responde SOLO con JSON válido, en español de Colombia, sin markdown, con esta forma exacta:",
+    FORMAT,
+    "Reglas:",
+    "- summary: 3 a 5 frases para gerencia. Qué pasó hoy frente a ayer, qué funcionó y qué preocupa.",
+    '- decisions: máximo 5, ordenadas por impacto. Acciones operativas concretas con números y responsable o momento (ej. "mañana 10 a. m."). reason cita el dato que la justifica.',
+    "- risks: máximo 3, breves.",
+    "- prospects: uno por cada prospecto de DATOS (máximo 6). offer = la línea del portafolio que mejor encaja con lo que dijo (proyecto, interés, sector, tamaño). pitch = una frase para abrir la conversación usando su propio contexto. next_step = qué hacer, quién y cuándo.",
+    "- Usa solo los datos entregados. No inventes cifras, nombres ni compromisos.",
+    "- Sé breve: action, offer, pitch y next_step de máximo 25 palabras; reason y risks de máximo 20.",
+  ].join("\n");
 }
 
 export function parseAnalysis(text: string | null | undefined): Analysis | null {
@@ -251,11 +371,19 @@ export function parseAnalysis(text: string | null | undefined): Analysis | null 
   try {
     const j = JSON.parse(m[0]) as Partial<Analysis>;
     if (!j.summary || !Array.isArray(j.decisions)) return null;
-    return { summary: String(j.summary), decisions: j.decisions.slice(0, 8), risks: Array.isArray(j.risks) ? j.risks.slice(0, 6) : [] };
+    return {
+      summary: String(j.summary),
+      decisions: j.decisions.slice(0, 6),
+      risks: Array.isArray(j.risks) ? j.risks.slice(0, 4) : [],
+      prospects: Array.isArray(j.prospects) ? j.prospects.filter((p) => p?.name && p?.offer).slice(0, 6) : [],
+    };
   } catch {
     return null;
   }
 }
+
+// Haiku con esfuerzo bajo: el análisis cuesta fracciones de centavo por reporte.
+export const CLAUDE_REPORT_MODEL = "claude-haiku-5-5";
 
 export async function claudeAnalysis(r: DailyReport): Promise<Analysis | null> {
   const key = env.anthropicKey();
@@ -264,13 +392,17 @@ export async function claudeAnalysis(r: DailyReport): Promise<Analysis | null> {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: env.anthropicModel(), max_tokens: 4000, messages: [{ role: "user", content: claudePrompt(r) }] }),
-      signal: AbortSignal.timeout(45000),
+      body: JSON.stringify({ model: CLAUDE_REPORT_MODEL, max_tokens: 8000, output_config: { effort: "low" }, messages: [{ role: "user", content: claudePrompt(r) }] }),
+      signal: AbortSignal.timeout(55000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error("Claude reporte", res.status, (await res.text()).slice(0, 300));
+      return null;
+    }
     const j = (await res.json()) as { content: { type: string; text?: string }[] };
     return parseAnalysis(j.content.find((b) => b.type === "text")?.text);
-  } catch {
+  } catch (e) {
+    console.error("Claude reporte", e);
     return null;
   }
 }

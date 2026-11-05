@@ -8,7 +8,7 @@ const capricorne = [{ name: "x-report-key", value: KEY }];
 const prepare = String.raw`const data = $('1 · Datos del día').first().json;
 const claude = $input.first().json;
 let analysis = null;
-let source = 'Claude';
+let source = 'Claude Haiku 5.5';
 try {
   const text = (claude.content || []).find((b) => b.type === 'text')?.text || '';
   const m = text.match(/\{[\s\S]*\}/);
@@ -27,11 +27,13 @@ let trigger = 'programado';
 try { if ($('Enviar ahora (Capricorne)').isExecuted) trigger = 'manual'; } catch (e) {}
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
 const top = analysis.decisions.slice(0, 4).map((d) => '<li style="margin:0 0 6px"><b>[' + esc(d.priority) + ']</b> ' + esc(d.action) + '</li>').join('');
+const offers = (analysis.prospects || []).slice(0, 4).map((p) => '<li style="margin:0 0 6px"><b>' + esc(p.name) + (p.company ? ' (' + esc(p.company) + ')' : '') + ':</b> ' + esc(p.offer) + '</li>').join('');
 const html = '<div style="font-family:Arial,sans-serif;color:#141826;max-width:620px">'
   + '<h2 style="color:#5b4bdb;margin:0 0 4px">Reporte operativo diario</h2>'
   + '<p style="color:#646b82;margin:0 0 14px">' + esc(data.label) + (data.partial ? ' · corte parcial' : '') + '</p>'
   + '<p style="line-height:1.5">' + esc(analysis.summary) + '</p>'
   + (top ? '<h3 style="margin:18px 0 8px">Decisiones prioritarias</h3><ul style="padding-left:18px">' + top + '</ul>' : '')
+  + (offers ? '<h3 style="margin:18px 0 8px">Qué ofrecer a cada prospecto</h3><ul style="padding-left:18px">' + offers + '</ul>' : '')
   + '<p style="color:#646b82;font-size:12px;margin-top:18px">Análisis: ' + esc(source) + '. El PDF adjunto trae los gráficos, la agenda de mañana y el detalle por comercial.</p></div>';
 return [{ json: { analysis, source, trigger, to: to.join(', '), recipients: to.length, subject: data.subject, html } }];`;
 
@@ -93,7 +95,7 @@ const nodes = [
       headerParameters: { parameters: [{ name: "anthropic-version", value: "2023-06-01" }] },
       sendBody: true,
       specifyBody: "json",
-      jsonBody: "={{ JSON.stringify({ model: 'claude-haiku-5-5', max_tokens: 4000, messages: [{ role: 'user', content: $json.claude_prompt }] }) }}",
+      jsonBody: "={{ JSON.stringify({ model: 'claude-haiku-5-5', max_tokens: 8000, output_config: { effort: 'low' }, messages: [{ role: 'user', content: $json.claude_prompt }] }) }}",
       options: { timeout: 60000 },
     },
   },

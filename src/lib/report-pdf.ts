@@ -1,6 +1,6 @@
 import "server-only";
 import PDFDocument from "pdfkit";
-import type { Analysis, DailyReport, DayKpis } from "./report";
+import type { Analysis, DailyReport, DayKpis, ProspectAdvice } from "./report";
 
 const C = {
   accent: "#5b4bdb",
@@ -29,7 +29,8 @@ export async function renderReportPdf(r: DailyReport, a: Analysis, source: strin
 
   header(doc, r);
   let y = 118;
-  y = summaryBox(doc, a, source, y);
+  const ai = /claude/i.test(source);
+  y = summaryBox(doc, a, source, ai, y);
   y = kpiGrid(doc, r.today, r.yesterday, y + 14);
   y = sectionTitle(doc, "Embudo acumulado", y + 18);
   y = funnel(doc, r, y);
@@ -45,11 +46,16 @@ export async function renderReportPdf(r: DailyReport, a: Analysis, source: strin
   y = slaBar(doc, r, y);
 
   doc.addPage();
-  y = sectionTitle(doc, "Decisiones operativas sugeridas", M);
+  y = sectionTitle(doc, "Decisiones operativas sugeridas", M, ai);
   y = decisions(doc, a, y);
   if (a.risks.length) {
-    y = sectionTitle(doc, "Riesgos y observaciones", y + 12);
+    y = sectionTitle(doc, "Riesgos y observaciones", y + 12, ai);
     y = bullets(doc, a.risks, y);
+  }
+  if (a.prospects.length) {
+    y = ensure(doc, y, 160);
+    y = sectionTitle(doc, "Qué ofrecer a cada prospecto", y + 12, ai);
+    y = prospectCards(doc, a.prospects, y);
   }
   y = ensure(doc, y, 120);
   y = sectionTitle(doc, "Agenda de mañana", y + 12);
@@ -108,19 +114,65 @@ function footer(doc: Doc, r: DailyReport) {
   }
 }
 
-function sectionTitle(doc: Doc, t: string, y: number) {
+function sectionTitle(doc: Doc, t: string, y: number, ai = false) {
   doc.fillColor(C.ink).font("Helvetica-Bold").fontSize(12.5).text(t, M, y);
+  if (ai) aiTag(doc, M + doc.widthOfString(t) + 8, y + 1);
   doc.moveTo(M, y + 18).lineTo(M + CW, y + 18).lineWidth(0.6).strokeColor(C.border).stroke();
   return y + 28;
 }
 
-function summaryBox(doc: Doc, a: Analysis, source: string, y: number) {
+// Etiqueta que marca todo lo redactado por la IA.
+function aiTag(doc: Doc, x: number, y: number, label = "IA · CLAUDE") {
+  doc.font("Helvetica-Bold").fontSize(7.5);
+  const w = doc.widthOfString(label) + 14;
+  doc.roundedRect(x, y, w, 14, 7).fill(C.accent);
+  doc.fillColor("#ffffff").text(label, x, y + 3.5, { width: w, align: "center" });
+  return w;
+}
+
+function summaryBox(doc: Doc, a: Analysis, source: string, ai: boolean, y: number) {
+  const note = ai
+    ? "Redactado por Claude (Anthropic) a partir de los datos del día. Es una recomendación: valídala antes de actuar."
+    : "Resumen automático por reglas de operación (la IA no estuvo disponible en este envío).";
   doc.font("Helvetica").fontSize(10);
-  const h = doc.heightOfString(a.summary, { width: CW - 28 }) + 40;
+  const th = doc.heightOfString(a.summary, { width: CW - 32, lineGap: 1.5 });
+  doc.fontSize(7.5);
+  const nh = doc.heightOfString(note, { width: CW - 32 });
+  const h = th + nh + 56;
   doc.roundedRect(M, y, CW, h, 10).fill(C.accentSoft);
-  doc.fillColor(C.accent).font("Helvetica-Bold").fontSize(9).text(`RESUMEN EJECUTIVO · ${source.toUpperCase()}`, M + 14, y + 12);
-  doc.fillColor(C.ink).font("Helvetica").fontSize(10).text(a.summary, M + 14, y + 27, { width: CW - 28, lineGap: 1.5 });
+  if (ai) doc.roundedRect(M, y, CW, h, 10).lineWidth(1.4).strokeColor(C.accent).stroke();
+  doc.rect(M, y + 10, 4, h - 20).fill(C.accent);
+  doc.fillColor(C.accent).font("Helvetica-Bold").fontSize(9).text(ai ? "ANÁLISIS CON INTELIGENCIA ARTIFICIAL" : "RESUMEN EJECUTIVO", M + 16, y + 14);
+  if (ai) aiTag(doc, M + CW - 92, y + 11, source.replace(/^Claude/i, "CLAUDE").toUpperCase().slice(0, 22));
+  doc.fillColor(C.ink).font("Helvetica").fontSize(10).text(a.summary, M + 16, y + 32, { width: CW - 32, lineGap: 1.5 });
+  doc.fillColor(C.muted).font("Helvetica-Oblique").fontSize(7.5).text(note, M + 16, y + 38 + th, { width: CW - 32 });
   return y + h;
+}
+
+function prospectCards(doc: Doc, list: ProspectAdvice[], y: number) {
+  const inner = CW - 28;
+  for (const p of list) {
+    const rows: [string, string][] = [
+      ["Ofrecer", p.offer],
+      ["Cómo abrir", p.pitch],
+      ["Siguiente paso", p.next_step],
+    ];
+    doc.font("Helvetica").fontSize(9);
+    const hs = rows.map(([, v]) => doc.heightOfString(v ?? "", { width: inner - 90 }));
+    const h = 30 + hs.reduce((a, b) => a + b + 5, 0);
+    y = ensure(doc, y, h + 8);
+    doc.roundedRect(M, y, CW, h, 8).lineWidth(0.9).strokeColor(C.accent).fillAndStroke("#fbfaff", C.accent);
+    doc.fillColor(C.ink).font("Helvetica-Bold").fontSize(10.5).text(p.name, M + 14, y + 10, { continued: !!p.company });
+    if (p.company) doc.fillColor(C.muted).font("Helvetica").fontSize(9.5).text(`  ·  ${p.company}`);
+    let yy = y + 28;
+    rows.forEach(([k, v], i) => {
+      doc.fillColor(C.accent).font("Helvetica-Bold").fontSize(8.5).text(k.toUpperCase(), M + 14, yy + 1, { width: 86 });
+      doc.fillColor(C.ink).font("Helvetica").fontSize(9).text(v ?? "", M + 104, yy, { width: inner - 90 });
+      yy += hs[i] + 5;
+    });
+    y += h + 8;
+  }
+  return y;
 }
 
 function kpiGrid(doc: Doc, t: DayKpis, p: DayKpis, y: number) {
@@ -156,7 +208,7 @@ function kpiGrid(doc: Doc, t: DayKpis, p: DayKpis, y: number) {
 function funnel(doc: Doc, r: DailyReport, y: number) {
   const max = Math.max(1, ...r.funnel.map((f) => f.value));
   const labelW = 150;
-  const barMax = CW - labelW - 70;
+  const barMax = CW - labelW - 110;
   r.funnel.forEach((f, i) => {
     const yy = y + i * 24;
     const w = Math.max(2, (f.value / max) * barMax);

@@ -12,7 +12,7 @@ export const reportSubject = (r: DailyReport) => `Reporte operativo ${r.date}${r
 export async function generateReport(opts: { analysis?: Analysis | null; source?: string; useClaude?: boolean } = {}) {
   const data = await buildDailyReport();
   let analysis = opts.analysis ?? null;
-  let source = opts.source ?? "Claude";
+  let source = opts.source ?? "Claude Haiku 5.5";
   if (!analysis && opts.useClaude) analysis = await claudeAnalysis(data);
   if (!analysis) {
     analysis = rulesAnalysis(data);
@@ -27,11 +27,16 @@ export function reportEmailHtml(r: DailyReport, a: Analysis, source: string) {
     .slice(0, 4)
     .map((d) => `<li style="margin:0 0 6px"><b>[${d.priority}]</b> ${esc(d.action)}</li>`)
     .join("");
+  const offers = a.prospects
+    .slice(0, 4)
+    .map((p) => `<li style="margin:0 0 6px"><b>${esc(p.name)}${p.company ? ` (${esc(p.company)})` : ""}:</b> ${esc(p.offer)}</li>`)
+    .join("");
   return `<div style="font-family:Arial,sans-serif;color:#141826;max-width:620px">
 <h2 style="color:#5b4bdb;margin:0 0 4px">Reporte operativo diario</h2>
 <p style="color:#646b82;margin:0 0 14px">${esc(r.label)}${r.partial ? " · corte parcial" : ""}</p>
 <p style="line-height:1.5">${esc(a.summary)}</p>
 ${top ? `<h3 style="margin:18px 0 8px">Decisiones prioritarias</h3><ul style="padding-left:18px">${top}</ul>` : ""}
+${offers ? `<h3 style="margin:18px 0 8px">Qué ofrecer a cada prospecto</h3><ul style="padding-left:18px">${offers}</ul>` : ""}
 <p style="color:#646b82;font-size:12px;margin-top:18px">Análisis: ${esc(source)}. El PDF adjunto trae los gráficos, la agenda de mañana y el detalle por comercial.</p>
 </div>`;
 }
