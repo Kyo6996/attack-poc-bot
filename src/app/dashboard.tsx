@@ -457,6 +457,11 @@ export function Dashboard({ section }: { section: Section }) {
                                   {Math.round((c.linkedin_confidence ?? 0) * 100)}% · {c.linkedin_source}
                                 </div>
                               </>
+                            ) : c.linkedin_source === "signalhire" ? (
+                              <>
+                                <span className="badge b-info">SignalHire</span>
+                                <div className="s">identidad {Math.round((c.linkedin_confidence ?? 0) * 100)}%</div>
+                              </>
                             ) : (
                               <span className="s">—</span>
                             )}
@@ -974,6 +979,9 @@ function ProfileCard({ c, onChange }: { c: Contact; onChange: () => void }) {
                 <span className="s">· {c.linkedin_source}</span>
               </div>
             )}
+            {!c.linkedin_url && c.linkedin_source === "signalhire" && (
+              <div className="s ok-text">Identidad confirmada con SignalHire: {p.signalhire?.best?.fullName}</div>
+            )}
           </div>
           <div>
             <div className="s">Empresa</div>
@@ -1044,6 +1052,17 @@ function ReviewDialog({ c, onDone, onClose }: { c: Contact; onDone: (msg: string
     else onDone(url ? `Perfil confirmado para ${c.first_name}: ya puede continuar con ▶` : `${c.first_name} queda omitido`);
   }
 
+  async function chooseSignalHire(uid: string) {
+    setBusy(true);
+    const err = await send(`/api/contacts/${c.id}/linkedin`, "POST", { signalhireUid: uid });
+    setBusy(false);
+    if (err) setError(err);
+    else onDone(`Identidad de ${c.first_name} confirmada con SignalHire (sin gastar créditos)`);
+  }
+
+  const sh = c.profile?.signalhire;
+  const shOptions = [sh?.best, ...(sh?.others ?? [])].filter((x): x is NonNullable<typeof x> => !!x && (x.score ?? 0) >= 0.5);
+
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ width: "min(720px, 100%)" }}>
@@ -1053,7 +1072,40 @@ function ReviewDialog({ c, onDone, onClose }: { c: Contact; onDone: (msg: string
         <p className="s">
           {c.title} · {c.company}. La búsqueda encontró estos perfiles públicos; confirma el correcto o descártalos.
         </p>
-        {cands.length === 0 && <p className="s">No hay candidatos guardados. Puedes pegar la URL del perfil.</p>}
+        {shOptions.length > 0 && (
+          <>
+            <div className="s" style={{ fontWeight: 600, marginTop: 8 }}>Encontrado en SignalHire (perfil actualizado · elegirlo no gasta créditos)</div>
+            <div className="cands">
+              {shOptions.map((p) => {
+                const job = p.experience?.[0];
+                const chosen = c.linkedin_source === "signalhire" && sh?.best?.uid === p.uid;
+                return (
+                  <div key={p.uid} className={`cand sh-cand ${chosen ? "on" : ""}`}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <b>{p.fullName}</b>{" "}
+                      <span className={`badge ${(p.score ?? 0) >= 0.8 ? "b-ok" : "b-warn"}`}>{Math.round((p.score ?? 0) * 100)}%</span>{" "}
+                      <span className="badge b-info">SignalHire</span>
+                      {job && (
+                        <div>
+                          {job.title || "Cargo no indicado"} @ {job.company}
+                        </div>
+                      )}
+                      <div className="s">
+                        {p.location ?? "Ubicación no indicada"}
+                        {p.experience?.length > 1 && ` · antes: ${p.experience.slice(1, 3).map((e) => e.company).join(", ")}`}
+                      </div>
+                    </div>
+                    <button className="sm primary" disabled={busy} onClick={() => chooseSignalHire(p.uid)}>
+                      Es esta persona · sin créditos
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            {cands.length > 0 && <div className="s" style={{ fontWeight: 600, marginTop: 8 }}>Candidatos de LinkedIn (búsqueda pública)</div>}
+          </>
+        )}
+        {cands.length === 0 && shOptions.length === 0 && <p className="s">No hay candidatos guardados. Puedes pegar la URL del perfil.</p>}
         <div className="cands">
           {cands.map((k) => (
             <div key={k.url} className={`cand ${c.linkedin_url === k.url ? "on" : ""}`}>

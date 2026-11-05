@@ -91,7 +91,25 @@ export async function advanceContact(c: Contact, opts: { allowCall: boolean }): 
       const paidPhones = (contact.profile?.phones ?? []).filter((p) => p.source.startsWith("SignalHire"));
       if (paidPhones.length) r.profile.phones = [...(r.profile.phones ?? []), ...paidPhones.filter((p) => !(r.profile.phones ?? []).some((x) => x.value === p.value))];
 
-      if (r.decision === "review" && contact.phone && isManualPhone(contact.enrichment_source)) {
+      // SignalHire con la persona en su empresa actual pesa más que candidatos de LinkedIn dudosos o empatados.
+      const shStrong = r.decision !== "found" && !!sh?.best && (sh.best.score ?? 0) >= SIGNALHIRE_IDENTITY;
+      if (shStrong) {
+        const job = sh!.best!.experience?.[0];
+        contact = await updateContact(contact.id, {
+          status: "linkedin_found",
+          linkedin_url: null,
+          linkedin_source: "signalhire",
+          linkedin_confidence: sh!.best!.score ?? null,
+          linkedin_candidates: r.candidates,
+          skip_reason: null,
+          profile: withProvenance(
+            { ...r.profile, headline: r.profile.headline ?? (job ? `${job.title} @ ${job.company}` : null), location: r.profile.location ?? sh!.best!.location },
+            { identity: { source: "SignalHire (búsqueda gratuita)", detail: `${Math.round((sh!.best!.score ?? 0) * 100)}% · ${sh!.best!.fullName}${job ? ` · ${job.title} @ ${job.company}` : ""}` } },
+          ),
+          ...fill,
+        });
+        await logEvent(contact.id, "linkedin", `Identidad confirmada con SignalHire (${Math.round((sh!.best!.score ?? 0) * 100)}%); LinkedIn solo tenía candidatos dudosos`, "success");
+      } else if (r.decision === "review" && contact.phone && isManualPhone(contact.enrichment_source)) {
         // Con teléfono registrado a mano la duda sobre LinkedIn no frena la llamada; el perfil se puede elegir después.
         contact = await updateContact(contact.id, { status: "linkedin_found", linkedin_candidates: r.candidates, profile: r.profile, ...fill });
         await logEvent(contact.id, "linkedin", `${r.candidates.length} perfiles posibles por revisar; sigue con el teléfono registrado`, "warn");
@@ -223,9 +241,12 @@ export function fillFromProfile(c: Contact, headline: string | null, location: s
 export async function prepareContacts(ids: string[]) {
   for (const id of ids) {
     const { data } = await db().from("contacts").select("*").eq("id", id).maybeSingle();
-    if (data && (data as Contact).status === "pending") await advanceContact(data as Contact, { allowCall: false });
+    const st = (data as Contact | null)?.status;
+    if (data && (st === "pending" || st === "linkedin_found")) await advanceContact(data as Contact, { allowCall: false });
   }
 }
+
+const SIGNALHIRE_IDENTITY = 0.9;
 
 async function findEmailFor(contact: Contact): Promise<Contact> {
   const domain = contact.profile!.company!.domain!;
