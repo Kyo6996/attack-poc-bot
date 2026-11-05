@@ -64,6 +64,8 @@ export interface LinkedInCandidate {
   confidence: number;
   reason: string;
   origin?: "serper" | "sandbox" | "manual";
+  // Solo se vio en publicaciones: la URL del perfil se dedujo y puede no ser exacta.
+  fromPost?: boolean;
 }
 
 export interface CompanyInfo {

@@ -28,7 +28,7 @@ export async function findLinkedInProfile(contact: Contact): Promise<LinkedInRes
 
   let decision: LinkedInResult["decision"] = "not_found";
   let best: LinkedInCandidate | null = null;
-  if (top && top.confidence >= AUTO) {
+  if (top && top.confidence >= AUTO && !top.fromPost) {
     decision = "found";
     best = top;
   } else if (provider !== "serper") {
@@ -43,8 +43,9 @@ export async function findLinkedInProfile(contact: Contact): Promise<LinkedInRes
   return {
     decision,
     best,
-    candidates: scored.slice(0, 5),
-    profile: buildProfile(best ?? (decision === "review" ? null : top), company, real.queries),
+    candidates: scored.filter((c) => c.confidence > 0).slice(0, 5),
+    // Los datos de persona solo salen del perfil elegido, nunca de un homónimo.
+    profile: buildProfile(best, company, real.queries),
   };
 }
 
@@ -126,7 +127,10 @@ async function searchSerper(c: Contact) {
         const part = o.title.split(/\s*[|·–-]\s*/).find((x) => normalize(x).includes(normalize(c.first_name)));
         if (part) t.name = part.trim();
       }
-      const prev = bySlug.get(slug);
+      // El identificador final (p. ej. 62495b207) es estable; el resto del slug cambia entre publicaciones y perfil.
+      const key = slug.match(/-([a-z0-9]*\d[a-z0-9]{5,})$/)?.[1] ?? slug;
+      const isProfile = /linkedin\.com\/in\//i.test(o.link);
+      const prev = bySlug.get(key);
       const snippet = o.snippet ?? "";
       const cand: LinkedInCandidate = prev ?? {
         url: `https://www.linkedin.com/in/${slug}`,
@@ -138,13 +142,18 @@ async function searchSerper(c: Contact) {
         confidence: 0,
         reason: "",
         origin: "serper",
+        fromPost: !isProfile,
       };
+      if (isProfile && cand.fromPost) {
+        cand.url = `https://www.linkedin.com/in/${slug}`;
+        cand.fromPost = false;
+      }
       if (!cand.headline && t.headline) cand.headline = t.headline;
       if (!cand.headline && /\/posts\//.test(o.link) && snippet) cand.headline = snippet.replace(new RegExp(`^${t.name}\\s*`, "i"), "").split(/\s{2,}|\.\s/)[0].slice(0, 120) || null;
       cand.location ??= parseLocation(snippet);
       if (snippet && !cand.snippet.includes(snippet)) cand.snippet = `${cand.snippet} ${snippet}`.trim().slice(0, 600);
       if (!cand.sources.some((s) => s.url === o.link)) cand.sources.push({ url: o.link, title: o.title });
-      bySlug.set(slug, cand);
+      bySlug.set(key, cand);
     }
     // Si ya hay un candidato muy bueno no se gastan más búsquedas.
     const scored = await score(c, [...bySlug.values()], false);
@@ -175,6 +184,7 @@ function heuristic(c: Contact, cand: LinkedInCandidate) {
   let conf = Math.min(1, 0.3 * firstHit + 0.25 * lastHit + 0.3 * (compHit >= 0.6 ? 1 : compHit / 2) + 0.1 * titleHit + 0.05 * co);
   // Homónimo probable: ni la empresa ni los apellidos completos coinciden.
   if (comp.length && compHit === 0 && lastHit < 1) conf *= 0.6;
+  if (cand.fromPost) conf *= 0.85;
   return {
     confidence: Math.round(conf * 100) / 100,
     reason: `nombre ${Math.round(firstHit * 100)}% · apellidos ${Math.round(lastHit * 100)}% · empresa ${Math.round(compHit * 100)}% · cargo ${Math.round(titleHit * 100)}%${co ? " · Colombia" : ""}`,

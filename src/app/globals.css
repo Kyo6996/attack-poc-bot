@@ -259,3 +259,5 @@ select { font: inherit; color: var(--text); background: var(--panel); border: 1p
 .cands { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 14px; max-height: 50vh; overflow-y: auto; }
 .cand { display: flex; gap: 12px; align-items: center; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13.5px; }
 .cand.on { border-color: var(--good); }
+
+.warn-text { color: var(--warn); }

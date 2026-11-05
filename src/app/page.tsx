@@ -989,6 +989,15 @@ function ReviewDialog({ c, onDone, onClose }: { c: Contact; onDone: (msg: string
                 </span>
                 {k.origin === "sandbox" && <span className="s"> · sandbox</span>}
                 {k.headline && <div>{k.headline}</div>}
+                {k.fromPost && (
+                  <div className="s warn-text">
+                    Detectado desde una{" "}
+                    <a href={k.sources[0]?.url} target="_blank" rel="noreferrer">
+                      publicación
+                    </a>
+                    : la URL del perfil puede no ser exacta. Si al abrirla no existe, pega la URL real abajo.
+                  </div>
+                )}
                 <div className="s">{k.snippet.slice(0, 200)}</div>
                 <div className="s">
                   {k.reason} ·{" "}
