@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { signalHireCredits } from "@/lib/providers/signalhire";
+import { apolloStatus } from "@/lib/providers/apollo";
+import { db } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
 
 type Status = "activo" | "prueba" | "inactivo";
@@ -27,6 +29,7 @@ export async function GET() {
         ? `Búsqueda gratuita automática · ${(await signalHireCredits()) ?? "?"} crédito(s) para revelar desde el detalle`
         : "Sin configurar",
     },
+    await apolloItem(),
     { name: "Claude (Anthropic)", purpose: "Desambiguar homónimos en LinkedIn", status: has("ANTHROPIC_API_KEY") ? "activo" : "inactivo", detail: "Opcional" },
     {
       name: "Vapi + Twilio",
@@ -54,4 +57,20 @@ export async function GET() {
     },
   ];
   return NextResponse.json({ items });
+}
+
+async function apolloItem(): Promise<{ name: string; purpose: string; status: Status; detail: string }> {
+  const purpose = "Datos de empresa (gratis) · correo y celular de la persona (con crédito, solo si faltan)";
+  const st = await apolloStatus();
+  if (!st) return { name: "Apollo.io", purpose, status: "inactivo", detail: "Sin configurar" };
+  const { count } = await db().from("events").select("id", { count: "exact", head: true }).eq("step", "enrichment").like("message", "Apollo:%").not("message", "like", "%plan actual%");
+  const usage = st.usedToday !== null ? ` · ${st.usedToday}/${st.dayLimit ?? "?"} consultas hoy` : "";
+  return {
+    name: "Apollo.io",
+    purpose,
+    status: st.person ? "activo" : "prueba",
+    detail: st.person
+      ? `Plan con acceso a personas · ${count ?? 0} enriquecimiento(s) con crédito hechos por la app${usage}. Saldo exacto: app.apollo.io → Settings → Plans & Billing (la API no lo publica)`
+      : `Plan gratis: empresas activo; correo y celular de personas requieren plan pago${usage}`,
+  };
 }

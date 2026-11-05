@@ -982,6 +982,21 @@ function ProfileCard({ c, onChange }: { c: Contact; onChange: () => void }) {
             {!c.linkedin_url && c.linkedin_source === "signalhire" && (
               <div className="s ok-text">Identidad confirmada con SignalHire: {p.signalhire?.best?.fullName}</div>
             )}
+            {p.apollo && (
+              <div className="s" style={{ marginTop: 6 }}>
+                <b>Apollo:</b>{" "}
+                {p.apollo.status === "plan"
+                  ? "el plan gratis no incluye correo ni celular de personas"
+                  : p.apollo.status === "error"
+                    ? `no disponible (${p.apollo.error})`
+                    : p.apollo.status === "sin coincidencia"
+                      ? "sin coincidencia"
+                      : `${p.apollo.person?.name ?? ""}${p.apollo.person?.title ? ` · ${p.apollo.person.title}` : ""}${p.apollo.person?.email ? ` · ✉ ${p.apollo.person.email} (${p.apollo.person.email_status ?? "?"})` : ""}`}
+                {p.apollo.phone?.status === "pendiente" && <span className="pulse"> · celular en camino…</span>}
+                {p.apollo.phone?.status === "listo" && <span className="mono"> · ☎ {p.apollo.phone.phones.join(", ")}</span>}
+                {p.apollo.phone?.status === "sin datos" && <span> · sin celular</span>}
+              </div>
+            )}
           </div>
           <div>
             <div className="s">Empresa</div>

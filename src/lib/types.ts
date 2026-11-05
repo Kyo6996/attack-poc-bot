@@ -112,6 +112,7 @@ export interface Profile {
   email?: { value: string; score: number; status: string | null; source: string };
   provenance?: Record<string, Provenance>;
   signalhire?: SignalHireInfo;
+  apollo?: ApolloInfo;
   searched_at: string;
   queries: number;
 }
@@ -206,6 +207,23 @@ export interface SignalHireProfile {
 }
 
 // Lo que SignalHire aporta gratis (búsqueda) y, si se autoriza, los contactos revelados con crédito.
+export interface ApolloInfo {
+  searched_at: string;
+  status: "ok" | "sin coincidencia" | "plan" | "error";
+  error?: string;
+  person?: {
+    id: string;
+    name: string | null;
+    title: string | null;
+    company: string | null;
+    linkedin: string | null;
+    email: string | null;
+    email_status: string | null;
+    city: string | null;
+  };
+  phone?: { status: "pendiente" | "listo" | "sin datos"; phones: string[]; received_at?: string };
+}
+
 export interface SignalHireInfo {
   searched_at: string;
   total: number;

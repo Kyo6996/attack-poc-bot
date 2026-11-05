@@ -5,9 +5,10 @@ import { env } from "./env";
 import { enrichContact, webPhone, type EnrichmentResult } from "./providers/enrichment";
 import { findWorkEmail, MIN_SCORE } from "./providers/hunter";
 import { findLinkedInProfile } from "./providers/linkedin";
+import { apolloEnabled, ApolloPlanError, enrichPerson } from "./providers/apollo";
 import { searchSignalHire, signalHireEnabled } from "./providers/signalhire";
 import { startCall } from "./providers/voice";
-import { fullName, type Contact, type ContactStatus, type SignalHireInfo } from "./types";
+import { fullName, type Contact, type ContactStatus, type ApolloInfo, type SignalHireInfo } from "./types";
 import { maskPhone } from "./util";
 import { withProvenance } from "./provenance";
 
@@ -154,6 +155,11 @@ export async function advanceContact(c: Contact, opts: { allowCall: boolean }): 
       contact = await findEmailFor(contact);
     }
 
+    // Apollo (gasta créditos): solo si aún falta correo o teléfono, y una sola vez por contacto.
+    if (contact.status === "linkedin_found" && apolloEnabled() && !contact.profile?.apollo && (!contact.email || !contact.phone)) {
+      contact = await apolloFor(contact);
+    }
+
     if (contact.status === "linkedin_found" && contact.phone && isManualPhone(contact.enrichment_source)) {
       contact = await updateContact(contact.id, { status: "phone_found" });
       await logEvent(contact.id, "enrichment", `Se usa el teléfono registrado a mano: ${maskPhone(contact.phone)}`, "success");
@@ -232,7 +238,7 @@ async function refetch(id: string): Promise<Contact> {
 // Completa solo los campos vacíos: lo que trae la base del cliente manda.
 export function fillFromProfile(c: Contact, headline: string | null, location: string | null): Partial<Contact> {
   const out: Partial<Contact> = {};
-  if (!c.title && headline) out.title = headline.split(/s+(?:en|at|@||)s+/i)[0].slice(0, 80);
+  if (!c.title && headline) out.title = headline.split(/\s+(?:en|at|@|\|)\s+/i)[0].slice(0, 80);
   if (!c.city && location) out.city = location.split(",")[0].trim();
   return out;
 }
@@ -303,4 +309,45 @@ async function signalHireFree(contact: Contact): Promise<SignalHireInfo | undefi
     await logEvent(contact.id, "linkedin", `SignalHire (gratis) no disponible: ${(e as Error).message}`, "warn");
     return { searched_at: new Date().toISOString(), total: 0, best: null, others: [], error: (e as Error).message };
   }
+}
+
+async function apolloFor(contact: Contact): Promise<Contact> {
+  const wantPhone = !contact.phone;
+  let info: ApolloInfo;
+  try {
+    info = await enrichPerson(contact, wantPhone);
+  } catch (e) {
+    const plan = e instanceof ApolloPlanError;
+    info = { searched_at: new Date().toISOString(), status: plan ? "plan" : "error", error: (e as Error).message };
+    await logEvent(contact.id, "enrichment", plan ? "Apollo: el plan actual no incluye datos de personas (correo y celular)" : `Apollo no disponible: ${info.error}`, "warn");
+    return updateContact(contact.id, { profile: { ...contact.profile!, apollo: info } });
+  }
+  const p = info.person;
+  if (!p) {
+    await logEvent(contact.id, "enrichment", "Apollo no encontró a esta persona");
+    return updateContact(contact.id, { profile: { ...contact.profile!, apollo: info } });
+  }
+  const useEmail = !contact.email && !!p.email && p.email_status !== "unavailable";
+  const useLinkedIn = !contact.linkedin_url && !!p.linkedin && /linkedin\.com\/in\//.test(p.linkedin);
+  const linkedin = useLinkedIn ? p.linkedin!.replace(/^http:/, "https:").replace("://linkedin", "://www.linkedin") : null;
+  const updated = await updateContact(contact.id, {
+    profile: withProvenance(
+      { ...contact.profile!, apollo: info },
+      {
+        ...(useEmail ? { email: { source: "Apollo (crédito)", detail: p.email_status } } : {}),
+        ...(useLinkedIn ? { linkedin_url: { source: "Apollo", url: linkedin } } : {}),
+        ...(!contact.title && p.title ? { title: { source: "Apollo" } } : {}),
+      },
+    ),
+    ...(useEmail ? { email: p.email } : {}),
+    ...(useLinkedIn ? { linkedin_url: linkedin } : {}),
+    ...(!contact.title && p.title ? { title: p.title.slice(0, 80) } : {}),
+  });
+  await logEvent(
+    contact.id,
+    "enrichment",
+    `Apollo: ${p.name ?? "persona encontrada"}${p.title ? ` · ${p.title}` : ""}${useEmail ? ` · correo ${p.email} (${p.email_status ?? "sin estado"})` : ""}${wantPhone ? " · celular solicitado (llega en unos minutos)" : ""}`,
+    "success",
+  );
+  return updated;
 }

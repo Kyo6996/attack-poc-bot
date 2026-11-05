@@ -3,6 +3,7 @@ import { askClaudeJson } from "../ai";
 import { db } from "../db";
 import { env } from "../env";
 import { crawlCompanySite, extractPhones } from "../contactinfo";
+import { withApolloOrg } from "./apollo";
 import { fullName, type CompanyInfo, type Contact, type ContactPhone, type LinkedInCandidate, type Profile } from "../types";
 import { normalize } from "../util";
 
@@ -24,7 +25,7 @@ export async function findLinkedInProfile(contact: Contact): Promise<LinkedInRes
 
   const real = live ? await searchSerper(contact) : { candidates: [], queries: 0 };
   const scored = await score(contact, real.candidates);
-  const company = live && contact.company ? await companyInfo(contact.company, contact.city) : null;
+  const company = await withApolloOrg(live && contact.company ? await companyInfo(contact.company, contact.city) : null, contact);
   const top = scored[0] ?? null;
 
   let decision: LinkedInResult["decision"] = "not_found";
@@ -293,7 +294,7 @@ export async function companyInfo(name: string, city?: string | null): Promise<C
   if (website && !abroad(website)) {
     const crawl = await crawlCompanySite(website);
     add(crawl.phones);
-    const domain = new URL(website).hostname.replace(/^www./, "");
+    const domain = new URL(website).hostname.replace(/^www\./, "");
     emails = crawl.emails.filter((e) => e.endsWith(`@${domain}`) || (!!brand && e.split("@")[1].includes(brand)));
   }
   // Teléfonos sueltos en resultados de búsqueda: último recurso (pueden ser de distribuidores).
