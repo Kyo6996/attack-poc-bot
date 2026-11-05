@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { db, logEvent } from "@/lib/db";
-import { CONTACT_FIELDS, InputError, pick, resetContact, touchesFlow, validateContact } from "@/lib/records";
+import { cancelEvents, CONTACT_FIELDS, InputError, pick, resetContact, syncMeetingEmail, touchesFlow, validateContact } from "@/lib/records";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -26,8 +26,11 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
       await logEvent(id, "system", `Editado desde el panel: ${Object.keys(changed).join(", ")}`);
     }
 
-    if (body.reprocess || (touchesFlow(changed) && before.status !== "pending")) {
+    const reprocess = body.reprocess || (touchesFlow(changed) && before.status !== "pending");
+    if (reprocess) {
       await resetContact(id, body.reprocess ? "reproceso manual" : "cambiaron datos que usa el flujo");
+    } else if (typeof data.email === "string") {
+      await syncMeetingEmail(id, data.email, `${before.first_name} ${before.last_name}`);
     }
     const { data: row } = await db().from("contacts").select("*").eq("id", id).single();
     return NextResponse.json(row);
@@ -41,6 +44,7 @@ export async function DELETE(_req: NextRequest, { params }: Ctx) {
   try {
     const { data } = await db().from("contacts").select("status").eq("id", id).single();
     if (data?.status === "calling") throw new InputError("El contacto está en llamada; espera a que termine");
+    await cancelEvents({ contactId: id });
     const { error } = await db().from("contacts").delete().eq("id", id);
     if (error) throw new Error(error.message);
     await logEvent(null, "system", "Contacto eliminado desde el panel");

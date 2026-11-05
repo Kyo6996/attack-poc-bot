@@ -1,5 +1,5 @@
 import "server-only";
-import { db } from "./db";
+import { db, logEvent } from "./db";
 import type { CallRow } from "./types";
 
 export async function openCall(contactId: string, provider: string, providerCallId?: string) {
@@ -21,8 +21,9 @@ export async function closeCall(
   const { data } = await q.order("started_at", { ascending: false }).limit(1).maybeSingle();
   if (!data) return;
   const ended = new Date();
-  const duration = result.durationSec ?? Math.round((ended.getTime() - Date.parse(data.started_at)) / 1000);
-  await db()
+  // Vapi reporta la duración con decimales y la columna es entera.
+  const duration = Math.round(result.durationSec ?? (ended.getTime() - Date.parse(data.started_at)) / 1000);
+  const { error } = await db()
     .from("calls")
     .update({
       status: result.status,
@@ -32,4 +33,5 @@ export async function closeCall(
       duration_sec: duration,
     })
     .eq("id", data.id);
+  if (error) await logEvent(data.contact_id, "call", `No se pudo cerrar el registro de la llamada: ${error.message}`, "error");
 }

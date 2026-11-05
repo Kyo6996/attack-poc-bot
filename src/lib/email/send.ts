@@ -142,6 +142,8 @@ export async function sendEmail(kind: EmailKind, contactId: string): Promise<{ o
   const { meeting, rep } = found;
 
   if (kind === "confirmacion") {
+    // El correo vigente es el del contacto (pudo corregirse después de agendar).
+    if (c.email && c.email !== meeting.attendee_email) meeting.attendee_email = c.email;
     const { subject, html } = confirmationEmail(c, meeting, rep);
     // Si la reunión no vino de Google Calendar, la invitación de calendario va en el correo.
     const ics = meeting.calendar_provider === "google" ? undefined : meetingIcs(c, meeting, rep, meetUrlOf(meeting));

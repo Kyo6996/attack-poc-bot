@@ -1,11 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { Stats } from "@/lib/stats";
 import type { CallRow, Contact, ContactStatus, EmailKind, EmailRow, EventRow, Meeting, SalesRep, SandboxProfile } from "@/lib/types";
 import { maskEmail, maskPhone } from "@/lib/util";
 import { Editor, type Field } from "./editor";
-import { StatsPanel } from "./stats";
+import { downloadTemplate, exportContacts, xlsxToCsv } from "./xlsx";
 
 interface State {
   contacts: Contact[];
@@ -16,6 +17,7 @@ interface State {
   emails: EmailRow[];
   calls: CallRow[];
   stats: Stats;
+  settings: { live_calls: boolean };
   providers: Record<string, string>;
 }
 
@@ -204,8 +206,31 @@ export default function Dashboard() {
     load();
   }
 
-  async function importCsv(file: File) {
-    const csv = await file.text();
+  async function toggleLiveCalls() {
+    const next = !state?.settings?.live_calls;
+    const err = await send("/api/settings", "POST", { live_calls: next });
+    setMsg(err ?? (next ? "Llamadas reales activadas" : "Llamadas reales desactivadas: el bot simula las llamadas"));
+    load();
+  }
+
+  async function runExport(kind: "base" | "plantilla") {
+    try {
+      if (kind === "plantilla") await downloadTemplate();
+      else if (state) await exportContacts(state);
+      setMsg(kind === "plantilla" ? "Plantilla descargada" : "Base descargada");
+    } catch (e) {
+      setMsg(`No se pudo descargar: ${(e as Error).message}`);
+    }
+  }
+
+  async function importFile(file: File) {
+    let csv: string;
+    try {
+      csv = /.xlsx$/i.test(file.name) ? await xlsxToCsv(file) : await file.text();
+    } catch (e) {
+      setMsg(`No se pudo leer el archivo: ${(e as Error).message}`);
+      return;
+    }
     const res = await fetch("/api/contacts/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -263,6 +288,9 @@ export default function Dashboard() {
           <div className="sub">LinkedIn → enriquecimiento → llamada de voz con IA → reunión agendada</div>
         </div>
         <div className="chips">
+          <Link className="btn sm" href="/sla">
+            Desempeño y SLA →
+          </Link>
           {state &&
             Object.entries(state.providers).map(([k, v]) => (
               <span key={k} className={`chip ${SANDBOX.includes(v) ? "" : "live"}`}>
@@ -277,8 +305,6 @@ export default function Dashboard() {
           {error}. Revisa las variables de entorno y que hayas corrido las migraciones en Supabase.
         </div>
       )}
-
-      {state?.stats && <StatsPanel stats={state.stats} />}
 
       <div className="kpis">
         <Kpi n={contacts.length} l="Contactos" />
@@ -296,19 +322,31 @@ export default function Dashboard() {
         <button className={auto ? "on" : ""} onClick={() => setAuto((a) => !a)}>
           {auto ? "● Automático activo" : "Automático"}
         </button>
-        <button onClick={() => fileRef.current?.click()}>Importar CSV</button>
+        <details className="menu">
+          <summary className="btn">Base de clientes ▾</summary>
+          <div className="menu-list">
+            <button onClick={() => runExport("base")}>⬇ Descargar base (.xlsx)</button>
+            <button onClick={() => fileRef.current?.click()}>⬆ Importar (.xlsx o .csv)</button>
+            <button onClick={() => runExport("plantilla")}>Plantilla de importación</button>
+          </div>
+        </details>
         <input
           ref={fileRef}
           type="file"
-          accept=".csv,text/csv"
+          accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           hidden
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) importCsv(f);
+            if (f) importFile(f);
             e.target.value = "";
           }}
         />
         <button onClick={reset}>Reiniciar demo</button>
+        {state?.providers.voice === "vapi" && (
+          <button className={state.settings?.live_calls ? "on" : ""} onClick={toggleLiveCalls} title="Desactívalo para probar sin gastar saldo de Twilio/Vapi">
+            {state.settings?.live_calls ? "📞 Llamadas reales: sí" : "📞 Llamadas reales: no (simuladas)"}
+          </button>
+        )}
         <span className="msg">{msg}</span>
       </div>
 
@@ -514,7 +552,6 @@ export default function Dashboard() {
                                         .join(" · ")}
                                     </p>
                                   )}
-                                  {c.recording_url && <audio controls src={c.recording_url} />}
                                 </div>
                               </div>
                               {c.call_transcript && (

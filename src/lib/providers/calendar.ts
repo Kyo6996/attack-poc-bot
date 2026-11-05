@@ -206,3 +206,19 @@ export async function cancelGoogleEvent(eventId: string) {
     throw new Error(`Google Calendar ${res.status}: ${await res.text()}`);
   }
 }
+
+// Cambia el correo de un invitado; Google le envía la invitación a la dirección nueva.
+export async function replaceGoogleAttendee(eventId: string, oldEmail: string, newEmail: string, displayName: string) {
+  const token = await googleAccessToken();
+  const base = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(env.googleCalendarId())}/events/${encodeURIComponent(eventId)}`;
+  const res = await fetch(base, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error(`Google Calendar ${res.status}: ${await res.text()}`);
+  const ev = (await res.json()) as { attendees?: { email: string; displayName?: string }[] };
+  const others = (ev.attendees ?? []).filter((a) => a.email.toLowerCase() !== oldEmail.toLowerCase() && a.email.toLowerCase() !== newEmail.toLowerCase());
+  const patch = await fetch(`${base}?sendUpdates=all`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ attendees: [{ email: newEmail, displayName }, ...others] }),
+  });
+  if (!patch.ok) throw new Error(`Google Calendar ${patch.status}: ${await patch.text()}`);
+}

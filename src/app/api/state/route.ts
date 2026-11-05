@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { getSettings } from "@/lib/settings";
 import { computeStats } from "@/lib/stats";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,7 @@ export async function GET() {
       db().from("calls").select("*").order("started_at", { ascending: false }).limit(300),
       computeStats(),
     ]);
+    const settings = await getSettings();
     const err = [contacts, meetings, events, sandbox, reps, emails, calls].find((r) => r.error)?.error;
     if (err) throw new Error(err.message);
     return NextResponse.json(
@@ -33,6 +35,7 @@ export async function GET() {
         emails: emails.data,
         calls: calls.data,
         stats,
+        settings,
         providers: env.providers,
       },
       { headers: { "Cache-Control": "no-store" } },

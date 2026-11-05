@@ -14,6 +14,24 @@ export interface HourBucket {
   total: number;
 }
 
+export interface SlaRow {
+  contactId: string;
+  name: string;
+  company: string | null;
+  loadedAt: string;
+  firstCallAt: string | null;
+  minutesToFirstCall: number | null;
+  sla: "A tiempo" | "Vencido" | "En plazo" | "No aplica";
+  note: string | null;
+  status: string;
+  attempts: number;
+}
+
+export interface FunnelStep {
+  label: string;
+  value: number;
+}
+
 export interface Stats {
   windowHours: number;
   calls: number;
@@ -38,6 +56,9 @@ export interface Stats {
     nextDeadline: string | null;
   };
   hourly: HourBucket[];
+  funnel: FunnelStep[];
+  slaRows: SlaRow[];
+  generatedAt: string;
 }
 
 // SLA: todo contacto con consentimiento debe recibir su primer intento de llamada
@@ -49,7 +70,7 @@ export async function computeStats(): Promise<Stats> {
   const [callsRes, meetingsRes, contactsRes, firstCallsRes] = await Promise.all([
     db().from("calls").select("*").gte("started_at", since),
     db().from("meetings").select("id, created_at").gte("created_at", since),
-    db().from("contacts").select("id, created_at, consent, status, skip_reason"),
+    db().from("contacts").select("id, first_name, last_name, company, created_at, consent, status, skip_reason, linkedin_url, phone"),
     db().from("calls").select("contact_id, started_at").order("started_at", { ascending: true }),
   ]);
   const calls = (callsRes.data ?? []) as CallRow[];
@@ -95,6 +116,45 @@ export async function computeStats(): Promise<Stats> {
   }
   const judged = met + breached;
 
+  const all = contactsRes.data ?? [];
+  const attempts = new Map<string, number>();
+  const answeredBy = new Set<string>();
+  for (const c of (firstCallsRes.data ?? []) as { contact_id: string }[]) attempts.set(c.contact_id, (attempts.get(c.contact_id) ?? 0) + 1);
+  const { data: answeredRows } = await db().from("calls").select("contact_id").eq("status", "answered");
+  for (const r of answeredRows ?? []) answeredBy.add(r.contact_id);
+  const funnel: FunnelStep[] = [
+    { label: "Contactos en base", value: all.length },
+    { label: "Con consentimiento", value: all.filter((c) => c.consent).length },
+    { label: "Perfil de LinkedIn ubicado", value: all.filter((c) => c.linkedin_url).length },
+    { label: "Celular encontrado", value: all.filter((c) => c.phone).length },
+    { label: "Llamados", value: all.filter((c) => firstCall.has(c.id)).length },
+    { label: "Contestaron", value: all.filter((c) => answeredBy.has(c.id)).length },
+    { label: "Reunión agendada", value: all.filter((c) => c.status === "meeting_scheduled").length },
+  ];
+
+  const slaRows: SlaRow[] = all.map((c) => {
+    const created = Date.parse(c.created_at);
+    const first = firstCall.get(c.id);
+    const eligibleRow = c.consent && !(c.status === "skipped" && first === undefined);
+    let sla: SlaRow["sla"] = "No aplica";
+    if (eligibleRow) {
+      if (first !== undefined) sla = first - created <= SLA_HOURS * 3600_000 ? "A tiempo" : "Vencido";
+      else sla = now > created + SLA_HOURS * 3600_000 ? "Vencido" : "En plazo";
+    }
+    return {
+      contactId: c.id,
+      name: `${c.first_name} ${c.last_name}`,
+      company: c.company,
+      loadedAt: c.created_at,
+      firstCallAt: first !== undefined ? new Date(first).toISOString() : null,
+      minutesToFirstCall: first !== undefined ? Math.round((first - created) / 60000) : null,
+      sla,
+      note: !c.consent ? "Sin consentimiento" : c.status === "skipped" ? c.skip_reason : null,
+      status: c.status,
+      attempts: attempts.get(c.id) ?? 0,
+    };
+  });
+
   const hourFmt = new Intl.DateTimeFormat("es-CO", { timeZone: env.timeZone(), hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
   const currentHour = Math.floor(now / 3600_000) * 3600_000;
   const hourly: HourBucket[] = Array.from({ length: SLA_HOURS }, (_, i) => {
@@ -137,5 +197,8 @@ export async function computeStats(): Promise<Stats> {
       nextDeadline: nextDeadline ? new Date(nextDeadline).toISOString() : null,
     },
     hourly,
+    funnel,
+    slaRows,
+    generatedAt: new Date(now).toISOString(),
   };
 }

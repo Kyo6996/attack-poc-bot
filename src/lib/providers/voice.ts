@@ -4,6 +4,7 @@ import { closeCall, openCall } from "../calls";
 import { db, logEvent, updateContact } from "../db";
 import { env } from "../env";
 import { buildSystemPrompt, firstMessage } from "../script";
+import { getSettings } from "../settings";
 import { spokenSlot } from "../speech";
 import type { Contact } from "../types";
 import { maskPhone } from "../util";
@@ -18,6 +19,10 @@ export type CallStart =
 export async function startCall(contact: Contact): Promise<CallStart> {
   if (!contact.phone) return { kind: "failed", reason: "sin número" };
   if (env.providers.voice !== "vapi") return simulateCall(contact);
+  if (!(await getSettings()).live_calls) {
+    await logEvent(contact.id, "call", "Llamadas reales desactivadas en el panel: se simula la llamada");
+    return simulateCall(contact);
+  }
 
   // En pruebas solo se marca de verdad a los números autorizados; el resto se simula.
   const allowed = env.voiceLiveNumbers();
@@ -119,6 +124,20 @@ async function startVapiCall(contact: Contact): Promise<CallStart> {
       server: { url: serverUrl },
       serverMessages: ["tool-calls", "end-of-call-report", "status-update"],
       metadata: { contactId: contact.id },
+      artifactPlan: { recordingEnabled: false },
+      analysisPlan: {
+        summaryPlan: {
+          enabled: true,
+          messages: [
+            {
+              role: "system",
+              content:
+                "Eres analista comercial. Resume la llamada en español, en máximo 3 frases: si tiene proyecto y de qué trata, si agendó (día y hora) y cualquier objeción o dato a corregir. Sin saludos ni viñetas.",
+            },
+            { role: "user", content: "Transcripción:\n{{transcript}}" },
+          ],
+        },
+      },
     },
   };
 

@@ -10,6 +10,7 @@ const ALIASES: Record<string, string> = {
   ciudad: "city", city: "city",
   email: "email", correo: "email",
   consentimiento: "consent", consent: "consent",
+  stand: "event_notes", event_notes: "event_notes", notas_stand: "event_notes",
 };
 
 function parseCsv(text: string): string[][] {

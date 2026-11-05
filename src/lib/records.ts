@@ -1,6 +1,6 @@
 import "server-only";
 import { db, logEvent } from "./db";
-import { cancelGoogleEvent } from "./providers/calendar";
+import { cancelGoogleEvent, replaceGoogleAttendee } from "./providers/calendar";
 import { toE164 } from "./util";
 
 export const CONTACT_FIELDS = ["first_name", "last_name", "company", "title", "city", "email", "consent", "event_notes"];
@@ -74,7 +74,7 @@ export function touchesFlow(data: Record<string, unknown>) {
   return FLOW_FIELDS.some((f) => f in data);
 }
 
-async function cancelEvents(filter: { contactId?: string }) {
+export async function cancelEvents(filter: { contactId?: string }) {
   let q = db().from("meetings").select("calendar_event_id, contact_id").eq("calendar_provider", "google").not("calendar_event_id", "is", null);
   if (filter.contactId) q = q.eq("contact_id", filter.contactId);
   const { data } = await q;
@@ -124,4 +124,21 @@ export async function resetContactsForProfile(linkedinUrls: (string | null | und
   }
   for (const id of ids) await resetContact(id, "se editaron sus datos sandbox");
   return ids.size;
+}
+
+// Si se corrige el correo de un contacto con reunión, la reunión y el evento pasan al correo nuevo.
+export async function syncMeetingEmail(contactId: string, newEmail: string, displayName: string) {
+  const { data: meetings } = await db().from("meetings").select("*").eq("contact_id", contactId);
+  for (const m of meetings ?? []) {
+    if (m.attendee_email?.toLowerCase() === newEmail.toLowerCase()) continue;
+    if (m.calendar_provider === "google" && m.calendar_event_id) {
+      try {
+        await replaceGoogleAttendee(m.calendar_event_id, m.attendee_email, newEmail, displayName);
+        await logEvent(contactId, "calendar", `Invitación de Google Calendar movida de ${m.attendee_email} a ${newEmail}`, "success");
+      } catch (e) {
+        await logEvent(contactId, "calendar", `No se pudo actualizar el invitado en Google: ${(e as Error).message}`, "error");
+      }
+    }
+    await db().from("meetings").update({ attendee_email: newEmail }).eq("id", m.id);
+  }
 }
