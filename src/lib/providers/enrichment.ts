@@ -76,3 +76,19 @@ export interface SignalHireCallbackItem {
     contacts?: { type: string; value: string; subType?: string }[];
   };
 }
+
+// Cascada: si el proveedor no trae celular, se usa el teléfono público encontrado en la web,
+// primero el de la persona y luego el de su empresa (fijo o celular).
+export function webPhone(contact: Contact): EnrichmentResult | null {
+  const p = contact.profile;
+  const candidates = [...(p?.phones ?? []), ...(p?.company?.phones ?? [])];
+  for (const ph of candidates) {
+    const parsed = parsePhoneNumberFromString(ph.value);
+    if (!parsed?.isValid() || parsed.country !== "CO") continue;
+    const label = ph.owner === "empresa" ? `web · empresa (${ph.source}, ${ph.type})` : `web · persona (${ph.source}, ${ph.type})`;
+    return { kind: "found", phone: parsed.number, email: null, source: label };
+  }
+  return null;
+}
+
+export const isCompanyLine = (source: string | null | undefined) => !!source?.startsWith("web · empresa");

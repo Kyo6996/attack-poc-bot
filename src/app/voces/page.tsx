@@ -143,6 +143,7 @@ export default function VocesPage() {
 
       <BrowserTest contacts={contacts} disabled={dirty} />
       <ChatterboxLab />
+      <LiveNumbers />
     </div>
   );
 }
@@ -340,6 +341,63 @@ function ChatterboxLab() {
           </div>
         </div>
       ))}
+    </section>
+  );
+}
+
+function LiveNumbers() {
+  const [numbers, setNumbers] = useState<string[] | null>(null);
+  const [input, setInput] = useState("");
+  const [msg, setMsg] = useState("");
+
+  const load = () =>
+    fetch("/api/settings", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => setNumbers(j.live_numbers ?? []));
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function update(body: Record<string, string>) {
+    const res = await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const json = await res.json();
+    if (!res.ok) setMsg(json.error);
+    else {
+      setNumbers(json.live_numbers);
+      setMsg("Lista actualizada");
+      setInput("");
+    }
+  }
+
+  return (
+    <section className="card pad">
+      <h2 className="h">4 · Números autorizados para llamada real</h2>
+      <p className="s" style={{ marginTop: 0 }}>
+        Solo estos números reciben una llamada real; al resto el bot los llama en modo simulado. Agrega únicamente números de personas que dieron su
+        consentimiento (Ley 1581). También puedes autorizarlos desde el detalle de cada contacto.
+      </p>
+      {numbers === null ? (
+        <p className="s">Cargando…</p>
+      ) : (
+        <ul className="list">
+          {numbers.length === 0 && <li className="s">Ninguno: todas las llamadas son simuladas.</li>}
+          {numbers.map((n) => (
+            <li key={n} className="mono">
+              {n}{" "}
+              <button className="sm" onClick={() => update({ revoke: n })}>
+                Quitar
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="btnrow">
+        <input className="inline-input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="+57 300 000 0000" />
+        <button className="sm" disabled={!input.trim()} onClick={() => update({ authorize: input })}>
+          Autorizar número
+        </button>
+        <span className="msg">{msg}</span>
+      </div>
     </section>
   );
 }

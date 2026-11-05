@@ -1,5 +1,10 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { db, logEvent } from "@/lib/db";
+import { prepareContacts } from "@/lib/pipeline";
+
+export const maxDuration = 60;
+// Los primeros se enriquecen al instante; el resto con "Ejecutar pipeline".
+const PREPARE_NOW = 10;
 
 // Acepta encabezados en español o inglés; el separador puede ser coma o punto y coma.
 const ALIASES: Record<string, string> = {
@@ -52,8 +57,10 @@ export async function POST(req: NextRequest) {
     return o;
   });
 
-  const { error, count } = await db().from("contacts").insert(records, { count: "exact" });
+  const { data: inserted, error } = await db().from("contacts").insert(records).select("id");
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  await logEvent(null, "system", `Importados ${count} contactos desde CSV`, "success");
+  const count = inserted?.length ?? 0;
+  await logEvent(null, "system", `Importados ${count} contactos: buscando su información…`, "success");
+  after(() => prepareContacts((inserted ?? []).slice(0, PREPARE_NOW).map((r) => r.id)));
   return NextResponse.json({ inserted: count });
 }

@@ -6,12 +6,15 @@ import type { AgentVoice } from "./voices";
 export interface AppSettings {
   live_calls: boolean;
   agent_voice: AgentVoice;
+  // Números con consentimiento que reciben llamada real; el resto se simula.
+  live_numbers: string[];
 }
 
 function defaults(): AppSettings {
   return {
     live_calls: true,
     agent_voice: { provider: env.vapiVoiceProvider(), voiceId: env.vapiVoiceId(), speed: 0.95, agentName: env.agentName() },
+    live_numbers: env.voiceLiveNumbers(),
   };
 }
 

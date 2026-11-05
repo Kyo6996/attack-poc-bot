@@ -17,7 +17,7 @@ interface State {
   emails: EmailRow[];
   calls: CallRow[];
   stats: Stats;
-  settings: { live_calls: boolean };
+  settings: { live_calls: boolean; live_numbers: string[] };
   providers: Record<string, string>;
 }
 
@@ -137,6 +137,27 @@ export default function Dashboard() {
   const [tab, setTab] = useState<Tab>("contacts");
   const [editing, setEditing] = useState<Editing>(null);
   const [reviewing, setReviewing] = useState<Contact | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  async function bulkDelete() {
+    if (!selected.size || !confirm(`¿Eliminar ${selected.size} contacto(s)? Se cancelan sus reuniones y se borra su historial.`)) return;
+    const res = await fetch("/api/contacts/bulk-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: [...selected] }),
+    });
+    const json = await res.json();
+    setMsg(res.ok ? `${json.deleted} contacto(s) eliminados${json.skipped ? ` · ${json.skipped} en llamada no se tocaron` : ""}` : `Error: ${json.error}`);
+    setSelected(new Set());
+    load();
+  }
+
+  async function authorizeNumber(phone: string, allow: boolean) {
+    if (allow && !confirm(`¿Esta persona dio su consentimiento para recibir una llamada real al ${phone}?`)) return;
+    const err = await send("/api/settings", "POST", allow ? { authorize: phone } : { revoke: phone });
+    setMsg(err ?? (allow ? `${phone} autorizado para llamada real` : `${phone} vuelve a llamada simulada`));
+    load();
+  }
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -373,6 +394,11 @@ export default function Dashboard() {
                 </button>
               ))}
             </div>
+            {tab === "contacts" && selected.size > 0 && (
+              <button className="sm danger" onClick={bulkDelete}>
+                Eliminar seleccionados ({selected.size})
+              </button>
+            )}
             {tab !== "agenda" && (
               <button
                 className="sm"
@@ -396,9 +422,17 @@ export default function Dashboard() {
               <table>
                 <thead>
                   <tr>
+                    <th style={{ width: 28 }}>
+                      <input
+                        type="checkbox"
+                        aria-label="Seleccionar todos"
+                        checked={contacts.length > 0 && selected.size === contacts.length}
+                        onChange={(e) => setSelected(e.target.checked ? new Set(contacts.map((c) => c.id)) : new Set())}
+                      />
+                    </th>
                     <th>Persona</th>
                     <th>LinkedIn</th>
-                    <th>Celular</th>
+                    <th>Teléfono</th>
                     <th>Estado</th>
                     <th>Reunión</th>
                     <th />
@@ -414,6 +448,19 @@ export default function Dashboard() {
                     return (
                       <Fragment key={c.id}>
                         <tr>
+                          <td>
+                            <input
+                              type="checkbox"
+                              aria-label={`Seleccionar a ${c.first_name}`}
+                              checked={selected.has(c.id)}
+                              onChange={(e) => {
+                                const next = new Set(selected);
+                                if (e.target.checked) next.add(c.id);
+                                else next.delete(c.id);
+                                setSelected(next);
+                              }}
+                            />
+                          </td>
                           <td>
                             <div>
                               <b>
@@ -442,6 +489,7 @@ export default function Dashboard() {
                           <td className="mono">
                             {maskPhone(c.phone)}
                             {c.enrichment_source && <div className="s">{c.enrichment_source}</div>}
+                            {c.phone && state?.settings?.live_numbers?.includes(c.phone) && <div className="s ok-text">✓ llamada real</div>}
                           </td>
                           <td>
                             <span className={`badge ${st.cls}`}>{st.label}</span>
@@ -487,7 +535,7 @@ export default function Dashboard() {
                         </tr>
                         {open === c.id && (
                           <tr className="detail">
-                            <td colSpan={6}>
+                            <td colSpan={7}>
                               <ProfileCard c={c} onChange={() => setReviewing(c)} />
                               <div className="detail-grid">
                                 <div>
@@ -526,6 +574,16 @@ export default function Dashboard() {
                                         {lastEmail(c.id, "confirmacion") ? "Reenviar confirmación" : "Enviar confirmación"}
                                       </button>
                                     )}
+                                    {c.phone &&
+                                      (state?.settings?.live_numbers?.includes(c.phone) ? (
+                                        <button className="sm" onClick={() => authorizeNumber(c.phone!, false)}>
+                                          Quitar llamada real
+                                        </button>
+                                      ) : (
+                                        <button className="sm" onClick={() => authorizeNumber(c.phone!, true)}>
+                                          Autorizar llamada real
+                                        </button>
+                                      ))}
                                     <button className="sm" onClick={() => sendMail(c.id, "seguimiento")} disabled={!c.email}>
                                       {lastEmail(c.id, "seguimiento") ? "Reenviar seguimiento" : "Enviar correo de seguimiento"}
                                     </button>
@@ -580,7 +638,7 @@ export default function Dashboard() {
                   })}
                   {contacts.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="s">
+                      <td colSpan={7} className="s">
                         Sin contactos. Crea uno con “+ Nuevo” o importa un CSV.
                       </td>
                     </tr>
@@ -899,6 +957,11 @@ function ProfileCard({ c, onChange }: { c: Contact; onChange: () => void }) {
             <div className="s">Persona</div>
             <b>{p.headline ?? "Sin titular público"}</b>
             {p.location && <div className="s">{p.location}</div>}
+            {(p.phones ?? []).map((ph) => (
+              <div key={ph.value} className="mono">
+                ☎ {ph.value} <span className="s">· {ph.type} · {ph.source}</span>
+              </div>
+            ))}
             {c.linkedin_url && (
               <div>
                 <a href={c.linkedin_url} target="_blank" rel="noreferrer">
@@ -914,7 +977,15 @@ function ProfileCard({ c, onChange }: { c: Contact; onChange: () => void }) {
               <>
                 <b>{co.name}</b>
                 {co.type && <span className="s"> · {co.type}</span>}
+                {co.category && <span className="s"> · {co.category}</span>}
                 {co.description && <div className="s">{co.description.slice(0, 220)}</div>}
+                {co.address && <div className="s">📍 {co.address}</div>}
+                {(co.phones ?? []).map((ph) => (
+                  <div key={ph.value} className="mono">
+                    ☎ {ph.value} <span className="s">· {ph.type} · {ph.source}</span>
+                  </div>
+                ))}
+                {(co.emails ?? []).length > 0 && <div className="s">✉ {co.emails!.join(", ")}</div>}
                 <div>
                   {co.website && (
                     <a href={co.website} target="_blank" rel="noreferrer">

@@ -20,15 +20,15 @@ export type CallStart =
 export async function startCall(contact: Contact): Promise<CallStart> {
   if (!contact.phone) return { kind: "failed", reason: "sin número" };
   if (env.providers.voice !== "vapi") return simulateCall(contact);
-  if (!(await getSettings()).live_calls) {
+  const settings = await getSettings();
+  if (!settings.live_calls) {
     await logEvent(contact.id, "call", "Llamadas reales desactivadas en el panel: se simula la llamada");
     return simulateCall(contact);
   }
 
-  // En pruebas solo se marca de verdad a los números autorizados; el resto se simula.
-  const allowed = env.voiceLiveNumbers();
-  if (allowed.length && !allowed.includes(contact.phone)) {
-    await logEvent(contact.id, "call", "Número fuera de VOICE_LIVE_NUMBERS: se simula la llamada");
+  // Solo se marca de verdad a números autorizados (con consentimiento); el resto se simula.
+  if (!settings.live_numbers.includes(contact.phone)) {
+    await logEvent(contact.id, "call", "Número no autorizado para llamada real: se simula (autorízalo en la app si hay consentimiento)");
     return simulateCall(contact);
   }
   return startVapiCall(contact);

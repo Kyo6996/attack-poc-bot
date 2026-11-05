@@ -76,6 +76,17 @@ export interface CompanyInfo {
   type: string | null;
   linkedin: string | null;
   attributes: Record<string, string> | null;
+  address?: string | null;
+  category?: string | null;
+  phones?: ContactPhone[];
+  emails?: string[];
+}
+
+export interface ContactPhone {
+  value: string;
+  type: "celular" | "fijo";
+  source: string;
+  owner: "persona" | "empresa";
 }
 
 // Lo que se encontró en la web sobre la persona y su empresa.
@@ -85,6 +96,7 @@ export interface Profile {
   summary: string | null;
   sources: { url: string; title: string }[];
   company: CompanyInfo | null;
+  phones?: ContactPhone[];
   searched_at: string;
   queries: number;
 }

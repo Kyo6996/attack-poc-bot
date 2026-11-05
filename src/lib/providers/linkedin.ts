@@ -2,7 +2,8 @@ import "server-only";
 import { askClaudeJson } from "../ai";
 import { db } from "../db";
 import { env } from "../env";
-import { fullName, type CompanyInfo, type Contact, type LinkedInCandidate, type Profile } from "../types";
+import { crawlCompanySite, extractPhones } from "../contactinfo";
+import { fullName, type CompanyInfo, type Contact, type ContactPhone, type LinkedInCandidate, type Profile } from "../types";
 import { normalize } from "../util";
 
 export interface LinkedInResult {
@@ -23,7 +24,7 @@ export async function findLinkedInProfile(contact: Contact): Promise<LinkedInRes
 
   const real = live ? await searchSerper(contact) : { candidates: [], queries: 0 };
   const scored = await score(contact, real.candidates);
-  const company = live && contact.company ? await companyInfo(contact.company) : null;
+  const company = live && contact.company ? await companyInfo(contact.company, contact.city) : null;
   const top = scored[0] ?? null;
 
   let decision: LinkedInResult["decision"] = "not_found";
@@ -56,6 +57,8 @@ export function buildProfile(c: LinkedInCandidate | null, company: CompanyInfo |
     summary: c?.snippet ?? null,
     sources: c ? c.sources : [],
     company,
+    // Teléfonos que aparecen junto al perfil elegido (poco común, pero se aprovecha si está).
+    phones: c ? extractPhones(c.snippet, "resultado de búsqueda", "persona") : [],
     searched_at: new Date().toISOString(),
     queries,
   };
@@ -213,46 +216,97 @@ Responde SOLO JSON: {"index": n, "confidence": 0..1, "reason": "máx. 20 palabra
 
 // ----------------------------------------------------------------- empresa
 
-const SKIP_DOMAINS = /linkedin|facebook|instagram|twitter|x\.com|youtube|wikipedia|connectamericas|empresite|informacolombia|einforma|dnb\.com|computrabajo|elempleo|glassdoor|indeed|directorio|datacredito|guia|paginasamarillas|rues|emis|opencorporates|zoominfo|crunchbase|bloomberg/i;
+const SKIP_DOMAINS = /linkedin|facebook|instagram|twitter|x\.com|youtube|wikipedia|connectamericas|empresite|informacolombia|einforma|dnb\.com|computrabajo|elempleo|glassdoor|indeed|directorio|datacredito|guia|paginasamarillas|rues|emis|opencorporates|zoominfo|crunchbase|bloomberg|rocketreach|aeroleads|cylex|peaku|apollo|lusha|signalhire/i;
+const FOREIGN_TLD = /\.(ec|pe|mx|cl|ar|ve|es|pa|bo|uy|py|br)(\/|$)/i;
 const companyCache = new Map<string, CompanyInfo | null>();
 
-export async function companyInfo(name: string): Promise<CompanyInfo | null> {
-  const key = normalize(name);
+interface Place {
+  title: string;
+  address?: string;
+  phoneNumber?: string;
+  website?: string;
+  category?: string;
+}
+
+async function serperPlaces(q: string): Promise<Place[]> {
+  const res = await fetch("https://google.serper.dev/places", {
+    method: "POST",
+    headers: { "X-API-KEY": env.serperKey(), "Content-Type": "application/json" },
+    body: JSON.stringify({ q, gl: "co", hl: "es" }),
+  });
+  if (!res.ok) return [];
+  return ((await res.json()) as { places?: Place[] }).places ?? [];
+}
+
+// Empresa: Google Maps (teléfono, web, dirección) + búsqueda web (descripción, LinkedIn) + página de contacto del sitio.
+export async function companyInfo(name: string, city?: string | null): Promise<CompanyInfo | null> {
+  const key = normalize(`${name} ${city ?? ""}`);
   if (companyCache.has(key)) return companyCache.get(key)!;
+
   const comp = tokens(name);
-  const matches = (text: string) => {
+  const brand = comp.find((t) => t.length >= 4) ?? comp[0];
+  const hasAll = (text: string) => {
     const hay = normalize(text);
     return comp.length > 0 && comp.filter((t) => hay.includes(t)).length / comp.length >= 0.75;
   };
+  const hasBrand = (text: string) => !!brand && normalize(text).includes(brand);
+  const abroad = (text: string) =>
+    FOREIGN_TLD.test(text) || (/\b(ecuador|quito|guayaquil|per[uú]|lima|m[eé]xico|chile|argentina|venezuela|panam[aá]|espa[nñ]a)\b/i.test(text) && !/colombia/i.test(text));
 
-  const r = await serper(`"${name}" Colombia empresa`);
+  const [places, r] = await Promise.all([serperPlaces(`${name} ${city ?? "Colombia"}`), serper(`"${name}" Colombia empresa`)]);
+
+  const place = places.find((p) => hasAll(p.title) && !abroad(`${p.address ?? ""} ${p.website ?? ""}`));
   const kg = r.knowledgeGraph;
-  // La web oficial debe tener el nombre de la empresa en el dominio (descarta directorios y homónimos).
-  const strong = comp.filter((t) => t.length >= 4);
-  const abroad = (text: string) => /\b(ecuador|quito|guayaquil|per[uú]|lima|m[eé]xico|chile|argentina|venezuela|panam[aá]|espa[nñ]a)\b/i.test(text) && !/colombia/i.test(text);
+  const kgOk = !!(kg?.title && hasAll(kg.title) && !abroad(`${kg.description ?? ""} ${kg.website ?? ""} ${JSON.stringify(kg.attributes ?? {})}`));
+  // La web oficial lleva la marca en el dominio (descarta directorios, agregadores y homónimos de otros países).
   const site = (r.organic ?? []).find((o) => {
-    if (SKIP_DOMAINS.test(o.link) || !matches(o.title) || abroad(`${o.title} ${o.snippet ?? ""} ${o.link}`)) return false;
+    if (SKIP_DOMAINS.test(o.link) || abroad(`${o.title} ${o.snippet ?? ""} ${o.link}`)) return false;
     const host = normalize(new URL(o.link).hostname.replace(/^www\./, "")).replace(/ /g, "");
-    return strong.length > 0 && strong.every((t) => host.includes(t));
+    return !!brand && host.includes(brand) && hasBrand(o.title);
   });
   const li = (r.organic ?? []).find(
-    (o) => /linkedin\.com\/company\//i.test(o.link) && matches(o.title) && !abroad(`${o.title} ${o.snippet ?? ""}`),
+    (o) => /linkedin\.com\/company\//i.test(o.link) && hasBrand(o.title) && hasAll(`${o.title} ${o.snippet ?? ""}`) && !abroad(`${o.title} ${o.snippet ?? ""}`),
   );
-  const kgOk = !!(kg?.title && matches(kg.title) && !abroad(`${kg.description ?? ""} ${JSON.stringify(kg.attributes ?? {})}`));
 
-  let info: CompanyInfo | null = null;
-  if (kgOk || site || li) {
-    const website = (kgOk ? kg!.website : undefined) ?? (site ? new URL(site.link).origin : undefined);
-    info = {
-      name: kgOk ? kg!.title! : name,
-      website: website ?? null,
-      domain: website ? new URL(website).hostname.replace(/^www\./, "") : null,
-      description: (kgOk ? kg!.description : null) ?? site?.snippet ?? null,
-      type: kgOk ? (kg!.type ?? null) : null,
-      linkedin: li ? li.link.split("?")[0] : null,
-      attributes: kgOk ? (kg!.attributes ?? null) : null,
-    };
+  if (!place && !kgOk && !site && !li) {
+    companyCache.set(key, null);
+    return null;
   }
+
+  const rawSite = place?.website ?? (kgOk ? kg!.website : undefined) ?? (site ? new URL(site.link).origin : undefined);
+  const website = rawSite ? new URL(rawSite).origin : null;
+
+  const phones: ContactPhone[] = [];
+  const add = (list: ContactPhone[]) => list.forEach((p) => !phones.some((x) => x.value === p.value) && phones.push(p));
+  if (place?.phoneNumber) add(extractPhones(place.phoneNumber, "Google Maps", "empresa"));
+  if (kgOk) add(extractPhones(JSON.stringify(kg!.attributes ?? {}), "Google", "empresa"));
+  let emails: string[] = [];
+  if (website && !abroad(website)) {
+    const crawl = await crawlCompanySite(website);
+    add(crawl.phones);
+    const domain = new URL(website).hostname.replace(/^www./, "");
+    emails = crawl.emails.filter((e) => e.endsWith(`@${domain}`) || (!!brand && e.split("@")[1].includes(brand)));
+  }
+  // Teléfonos sueltos en resultados de búsqueda: último recurso (pueden ser de distribuidores).
+  if (!phones.length) {
+    for (const o of r.organic ?? []) {
+      if (hasAll(`${o.title} ${o.snippet ?? ""}`) && !abroad(o.link)) add(extractPhones(o.snippet ?? "", "resultado de búsqueda", "empresa"));
+    }
+  }
+
+  const info: CompanyInfo = {
+    name: kgOk ? kg!.title! : (place?.title ?? name),
+    website,
+    domain: website ? new URL(website).hostname.replace(/^www\./, "") : null,
+    description: (kgOk ? kg!.description : null) ?? site?.snippet ?? null,
+    type: kgOk ? (kg!.type ?? null) : null,
+    linkedin: li ? li.link.split("?")[0].replace(/^https:\/\/[a-z]{2}\./, "https://www.") : null,
+    attributes: kgOk ? (kg!.attributes ?? null) : null,
+    address: place?.address ?? null,
+    category: place?.category ?? null,
+    phones: phones.slice(0, 5),
+    emails,
+  };
   companyCache.set(key, info);
   return info;
 }

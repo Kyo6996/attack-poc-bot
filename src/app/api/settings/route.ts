@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { logEvent } from "@/lib/db";
 import { env } from "@/lib/env";
 import { getSettings, setSetting } from "@/lib/settings";
+import { toE164 } from "@/lib/util";
 import type { AgentVoice } from "@/lib/voices";
 
 export async function GET() {
@@ -25,11 +26,26 @@ async function validateVoice(v: AgentVoice) {
 }
 
 export async function POST(req: NextRequest) {
-  const body = (await req.json()) as { live_calls?: boolean; agent_voice?: Partial<AgentVoice> };
+  const body = (await req.json()) as {
+    live_calls?: boolean;
+    agent_voice?: Partial<AgentVoice>;
+    live_numbers?: string[];
+    authorize?: string;
+    revoke?: string;
+  };
   try {
     if (typeof body.live_calls === "boolean") {
       await setSetting("live_calls", body.live_calls);
       await logEvent(null, "system", body.live_calls ? "Llamadas reales activadas" : "Llamadas reales desactivadas: se simulan");
+    }
+    if (body.live_numbers || body.authorize || body.revoke) {
+      const current = (await getSettings()).live_numbers;
+      let next = body.live_numbers ? body.live_numbers : current;
+      if (body.authorize) next = [...next, body.authorize];
+      if (body.revoke) next = next.filter((n) => toE164(n) !== toE164(body.revoke));
+      const clean = [...new Set(next.map((n) => toE164(n)).filter((n): n is string => !!n))];
+      await setSetting("live_numbers", clean);
+      await logEvent(null, "system", `Números autorizados para llamada real: ${clean.length}`);
     }
     if (body.agent_voice) {
       const v = body.agent_voice;

@@ -85,7 +85,15 @@ export function buildSystemPrompt(c: Contact, agentName = env.agentName()): stri
 
   return `Eres ${agentName}, asistente de voz del equipo de ${env.companyName()}, que hace el seguimiento comercial de ${env.brandName()} a los contactos de ${env.eventName()}.
 Estás llamando a ${c.first_name} ${c.last_name}${c.title ? `, ${c.title}` : ""}${c.company ? ` en ${c.company}` : ""}.
-
+${
+  c.enrichment_source?.startsWith("web · empresa")
+    ? `
+OJO: este número es el teléfono general de ${c.company ?? "la empresa"}, no el de ${c.first_name}. Si contesta recepción u otra persona,
+saluda con amabilidad, di que llamas del equipo de ${env.companyName()} para ${c.first_name} ${c.last_name} y pide que te comuniquen.
+Si no está, pregunta el mejor momento para encontrarle o su correo, registra el resultado y despídete. Cuando te pasen con ${c.first_name}, sigue el guion.
+`
+    : ""
+}
 OBJETIVO: saber si tiene un proyecto de modernización tecnológica y, si aplica, dejar agendada en esta misma llamada una conversación virtual de quince minutos con el especialista de ${env.brandName()}.
 ${ESTILO}
 
@@ -108,5 +116,8 @@ HERRAMIENTAS:
 }
 
 export function firstMessage(c: Contact): string {
+  if (c.enrichment_source?.startsWith("web · empresa")) {
+    return `¡Hola, buen día! ¿Me podría comunicar con ${c.first_name} ${c.last_name.split(" ")[0]}, por favor?`;
+  }
   return `¡Hola! ¿Hablo con ${c.first_name}?`;
 }

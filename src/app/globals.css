@@ -261,3 +261,8 @@ select { font: inherit; color: var(--text); background: var(--panel); border: 1p
 .cand.on { border-color: var(--good); }
 
 .warn-text { color: var(--warn); }
+
+.ok-text { color: var(--ok); }
+button.sm.danger { padding: 4px 9px; }
+
+.inline-input { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; }

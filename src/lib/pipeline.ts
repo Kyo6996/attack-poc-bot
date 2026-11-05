@@ -1,7 +1,7 @@
 import "server-only";
 import { claimContact, db, logEvent, releaseContact, updateContact } from "./db";
 import { env } from "./env";
-import { enrichContact, type EnrichmentResult } from "./providers/enrichment";
+import { enrichContact, webPhone, type EnrichmentResult } from "./providers/enrichment";
 import { findLinkedInProfile } from "./providers/linkedin";
 import { startCall } from "./providers/voice";
 import { fullName, type Contact, type ContactStatus } from "./types";
@@ -127,15 +127,19 @@ export async function applyEnrichment(contact: Contact, r: EnrichmentResult): Pr
     return updateContact(contact.id, { status: "enriching", enrichment_source: r.source });
   }
   if (r.kind === "not_found") {
-    return skip({ ...contact, enrichment_source: r.source }, r.reason, "enrichment");
+    const web = webPhone(contact);
+    if (!web) return skip({ ...contact, enrichment_source: r.source }, r.reason, "enrichment");
+    await logEvent(contact.id, "enrichment", `${r.reason}; se usa el teléfono público encontrado (${web.kind === "found" ? web.source : ""})`);
+    r = web;
   }
+  if (r.kind !== "found") return contact;
   const updated = await updateContact(contact.id, {
     status: "phone_found",
     phone: r.phone,
     email: contact.email ?? r.email,
     enrichment_source: r.source,
   });
-  await logEvent(contact.id, "enrichment", `Celular encontrado: ${maskPhone(r.phone)}`, "success");
+  await logEvent(contact.id, "enrichment", `Teléfono encontrado: ${maskPhone(r.phone)} · ${r.source}`, "success");
   return updated;
 }
 
@@ -159,4 +163,12 @@ export function fillFromProfile(c: Contact, headline: string | null, location: s
   if (!c.title && headline) out.title = headline.split(/s+(?:en|at|@||)s+/i)[0].slice(0, 80);
   if (!c.city && location) out.city = location.split(",")[0].trim();
   return out;
+}
+
+// Al registrar o importar: busca LinkedIn, ficha y teléfono de inmediato, sin llamar.
+export async function prepareContacts(ids: string[]) {
+  for (const id of ids) {
+    const { data } = await db().from("contacts").select("*").eq("id", id).maybeSingle();
+    if (data && (data as Contact).status === "pending") await advanceContact(data as Contact, { allowCall: false });
+  }
 }

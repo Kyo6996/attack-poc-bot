@@ -1,5 +1,6 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { db, logEvent } from "@/lib/db";
+import { prepareContacts } from "@/lib/pipeline";
 import { cancelEvents, CONTACT_FIELDS, InputError, pick, resetContact, syncMeetingEmail, touchesFlow, validateContact } from "@/lib/records";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -29,6 +30,8 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     const reprocess = body.reprocess || (touchesFlow(changed) && before.status !== "pending");
     if (reprocess) {
       await resetContact(id, body.reprocess ? "reproceso manual" : "cambiaron datos que usa el flujo");
+      // Se vuelve a buscar su información de inmediato (sin llamar).
+      after(() => prepareContacts([id]));
     } else if (typeof data.email === "string") {
       await syncMeetingEmail(id, data.email, `${before.first_name} ${before.last_name}`);
     }
