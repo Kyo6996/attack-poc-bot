@@ -2,29 +2,29 @@ import { after, NextResponse, type NextRequest } from "next/server";
 import { db, logEvent } from "@/lib/db";
 import { sendEmail } from "@/lib/email/send";
 import { prepareContacts, runPipeline } from "@/lib/pipeline";
+import { clientIp, countRecent, recordHit } from "@/lib/security";
 import { getSettings, setSetting } from "@/lib/settings";
 import { toE164 } from "@/lib/util";
 
 export const maxDuration = 60;
 
 const AREAS = ["dispositivos", "infraestructura", "servicios", "IA"];
-const hits = new Map<string, number[]>();
-
-// Máx. 5 registros por IP cada 10 minutos (por instancia): basta para frenar envíos automáticos.
-function limited(ip: string) {
-  const now = Date.now();
-  const recent = (hits.get(ip) ?? []).filter((t) => now - t < 600_000);
-  recent.push(now);
-  hits.set(ip, recent);
-  return recent.length > 5;
-}
+// Topes para que nadie use el formulario para llenar la base o hacer que el bot llame a terceros.
+const PER_IP_10MIN = 3;
+const PER_IP_DAY = 10;
+const ALL_PER_HOUR = 60;
+const AUTO_CALLS_PER_DAY = 25;
 
 const clean = (v: unknown, max = 120) => (typeof v === "string" ? v.trim().slice(0, max) : "") || null;
 
 // Formulario público (QR). Pide lo necesario para contactar sin obligar a llenarlo todo.
 export async function POST(req: NextRequest) {
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "local";
-  if (limited(ip)) return NextResponse.json({ error: "Demasiados intentos. Intenta de nuevo en unos minutos." }, { status: 429 });
+  const ip = clientIp(req);
+  const tooMany =
+    (await countRecent("lead", 600, ip)) >= PER_IP_10MIN || (await countRecent("lead", 86400, ip)) >= PER_IP_DAY || (await countRecent("lead", 3600)) >= ALL_PER_HOUR;
+  if (tooMany) return NextResponse.json({ error: "Demasiados intentos. Intenta de nuevo en unos minutos." }, { status: 429 });
+  if (Number(req.headers.get("content-length") ?? 0) > 8000) return NextResponse.json({ error: "Solicitud demasiado grande" }, { status: 413 });
+  await recordHit("lead", ip);
 
   const b = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   if (b.website) return NextResponse.json({ ok: true }); // campo trampa: lo llenan los bots, no las personas
@@ -67,10 +67,14 @@ export async function POST(req: NextRequest) {
 
   await logEvent(row.id, "system", `Nuevo registro por QR (${origin}) · prefiere ${preference}`, "success");
 
-  // Quien deja su celular y autoriza el contacto puede recibir la llamada real del bot.
-  if (phone && preference === "llamada") {
+  // Quien deja su celular colombiano y autoriza el contacto puede recibir la llamada real del bot (con tope diario).
+  const autoCall = !!phone && preference === "llamada" && /^\+573\d{9}$/.test(phone) && (await countRecent("auto-call", 86400)) < AUTO_CALLS_PER_DAY;
+  if (autoCall) {
     const s = await getSettings();
-    if (!s.live_numbers.includes(phone)) await setSetting("live_numbers", [...s.live_numbers, phone]);
+    if (!s.live_numbers.includes(phone!)) await setSetting("live_numbers", [...s.live_numbers, phone!]);
+    await recordHit("auto-call");
+  } else if (phone && preference === "llamada") {
+    await logEvent(row.id, "system", "Celular no autorizado para llamada automática (no es celular colombiano o se alcanzó el tope diario): lo revisa el equipo", "warn");
   }
 
   after(async () => {

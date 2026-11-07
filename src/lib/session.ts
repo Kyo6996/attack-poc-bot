@@ -4,8 +4,19 @@ export const SESSION_DAYS = 7;
 
 const enc = new TextEncoder();
 
+// En producción las sesiones se firman solo con AUTH_SECRET (nunca con el secreto que viaja en las URLs de webhooks).
 function secret() {
-  return process.env.AUTH_SECRET || process.env.WEBHOOK_SECRET || process.env.DASHBOARD_PASSWORD || "dev-secret";
+  const s = process.env.AUTH_SECRET || (process.env.NODE_ENV !== "production" ? process.env.WEBHOOK_SECRET || "dev-secret" : "");
+  if (!s) throw new Error("Falta AUTH_SECRET");
+  return s;
+}
+
+// Comparación en tiempo constante (también funciona en el proxy, sin node:crypto).
+export function ctEqual(a: string, b: string) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
 }
 
 const b64url = (bytes: ArrayBuffer | Uint8Array) =>
@@ -29,7 +40,12 @@ export async function createSession(user: string) {
 export async function readSession(token: string | undefined | null): Promise<{ u: string } | null> {
   if (!token) return null;
   const [payload, sig] = token.split(".");
-  if (!payload || !sig || (await hmac(payload)) !== sig) return null;
+  if (!payload || !sig) return null;
+  try {
+    if (!ctEqual(await hmac(payload), sig)) return null;
+  } catch {
+    return null;
+  }
   try {
     const data = JSON.parse(new TextDecoder().decode(fromB64url(payload))) as { u: string; exp: number };
     return data.exp > Date.now() ? { u: data.u } : null;

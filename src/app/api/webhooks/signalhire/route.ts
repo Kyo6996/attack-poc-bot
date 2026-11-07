@@ -1,6 +1,7 @@
 import { after, NextResponse, type NextRequest } from "next/server";
 import { db, logEvent, updateContact } from "@/lib/db";
 import { env } from "@/lib/env";
+import { safeEqual } from "@/lib/security";
 import { applyEnrichment, runPipeline } from "@/lib/pipeline";
 import { checkMobile, parseSignalHireItem, type SignalHireCallbackItem } from "@/lib/providers/enrichment";
 import { withProvenance } from "@/lib/provenance";
@@ -11,7 +12,7 @@ const READY_FROM: ContactStatus[] = ["pending", "linkedin_found", "needs_review"
 
 // SignalHire exige un 200 en menos de 10 s, por eso la llamada se dispara con after().
 export async function POST(req: NextRequest) {
-  if (req.nextUrl.searchParams.get("token") !== env.webhookSecret()) {
+  if (!safeEqual(req.nextUrl.searchParams.get("token"), env.webhookSecret())) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const contactId = req.nextUrl.searchParams.get("contact");

@@ -1,5 +1,6 @@
 import "server-only";
 import { findPhoneNumbersInText } from "libphonenumber-js/max";
+import { safeFetch } from "./security";
 
 export interface FoundPhone {
   value: string; // E.164
@@ -37,12 +38,11 @@ export function extractEmails(text: string): string[] {
 
 async function getText(url: string): Promise<string | null> {
   try {
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; AttackPOC/1.0)", Accept: "text/html" },
       signal: AbortSignal.timeout(5000),
-      redirect: "follow",
     });
-    if (!res.ok || !(res.headers.get("content-type") ?? "").includes("html")) return null;
+    if (!res || !res.ok || !(res.headers.get("content-type") ?? "").includes("html")) return null;
     const html = (await res.text()).slice(0, 400_000);
     // Los enlaces tel: y mailto: son la fuente más limpia; el texto visible complementa.
     const links = [...html.matchAll(/(?:tel|mailto):([^"'>\s]+)/gi)].map((m) => decodeURIComponent(m[1])).join(" \n ");

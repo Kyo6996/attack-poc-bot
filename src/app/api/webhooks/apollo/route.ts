@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { db, logEvent, updateContact } from "@/lib/db";
 import { env } from "@/lib/env";
+import { safeEqual } from "@/lib/security";
 import { parseApolloPhones } from "@/lib/providers/apollo";
 import { withProvenance } from "@/lib/provenance";
 import type { Contact, ContactPhone, ContactStatus } from "@/lib/types";
@@ -10,7 +11,7 @@ const READY_FROM: ContactStatus[] = ["pending", "linkedin_found", "needs_review"
 
 // Apollo entrega los celulares de forma asíncrona aquí; se usan salvo que ya haya un número elegido a mano.
 export async function POST(req: NextRequest) {
-  if (req.nextUrl.searchParams.get("token") !== env.webhookSecret()) {
+  if (!safeEqual(req.nextUrl.searchParams.get("token"), env.webhookSecret())) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const id = req.nextUrl.searchParams.get("contact");

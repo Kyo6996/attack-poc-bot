@@ -14,7 +14,7 @@ export async function GET() {
     const [contacts, meetings, events, sandbox, reps, emails, calls, stats] = await Promise.all([
       db().from("contacts").select("*").order("created_at").order("id"),
       db().from("meetings").select("*").order("starts_at"),
-      db().from("events").select("*").order("id", { ascending: false }).limit(120),
+      db().from("events").select("*").neq("step", "security").order("id", { ascending: false }).limit(120),
       db().from("sandbox_profiles").select("*").order("created_at").order("id"),
       db().from("sales_reps").select("*").order("area").order("name"),
       db()

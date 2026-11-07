@@ -3,6 +3,7 @@ import { availabilityForAgent, bookForAgent, recordOutcome } from "@/lib/booking
 import { finishVapiCall } from "@/lib/callresult";
 import { db, logEvent, updateContact } from "@/lib/db";
 import { env } from "@/lib/env";
+import { safeEqual } from "@/lib/security";
 import { runPipeline } from "@/lib/pipeline";
 import type { Contact } from "@/lib/types";
 
@@ -36,7 +37,7 @@ interface VapiMessage {
 
 
 export async function POST(req: NextRequest) {
-  if (req.nextUrl.searchParams.get("token") !== env.webhookSecret()) {
+  if (!safeEqual(req.nextUrl.searchParams.get("token"), env.webhookSecret())) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const { message } = (await req.json()) as { message: VapiMessage };
