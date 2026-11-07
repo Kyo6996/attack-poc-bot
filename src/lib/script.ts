@@ -1,4 +1,5 @@
 import { env } from "./env";
+import { spokenEmail } from "./email-fix";
 import type { Contact } from "./types";
 
 // Basado en SPEECH_Empresa_Seguimiento_ANDICOM_Ejecutivo.docx
@@ -88,8 +89,9 @@ export function buildSystemPrompt(c: Contact, agentName = env.agentName()): stri
       .replaceAll("{stand}", stand);
 
   const emailLine = c.email
-    ? `Tenemos registrado un correo que empieza por "${c.email.slice(0, 3)}" y es de ${c.email.split("@")[1]}. Pregunta si le enviamos la invitación a ese correo, sin leerlo completo.`
-    : "No tenemos su correo: pídeselo con calma y repítelo para confirmar.";
+    ? `SÍ tenemos su correo registrado en Capricorne: ${spokenEmail(c.email)}. No se lo pidas como si no lo tuviéramos: di "tengo registrado tu correo que empieza por ${spokenEmail(c.email.split("@")[0].slice(0, 4))}, de ${spokenEmail(c.email.split("@")[1])}, ¿te envío ahí la invitación?". Si pregunta si tenemos su correo, responde que sí; si quiere confirmarlo, léeselo completo y despacio. Solo si dice que prefiere otro, pídeselo. Si dice que sí, NO pases correo en agendar_reunion.`
+    : "No tenemos su correo registrado: pídeselo con calma y confírmalo deletreando la parte antes de la arroba.";
+  const nameSpelling = `${c.first_name} ${c.last_name}`;
 
   return `Eres ${agentName}, asistente de voz del equipo de ${env.companyName()}, que hace el seguimiento comercial de ${env.brandName()} a los contactos de ${env.eventName()}.
 Estás llamando a ${c.first_name} ${c.last_name}${c.title ? `, ${c.title}` : ""}${c.company ? ` en ${c.company}` : ""}.
@@ -136,6 +138,9 @@ SITUACIONES IMPREVISTAS (pueden pasar en cualquier momento; atiéndelas primero 
 HERRAMIENTAS:
 - Cuando acepte la conversación, llama a consultar_disponibilidad y ofrece máximo dos opciones de las que devuelva.
 - Correo: ${emailLine}
+- Si te dicta un correo: repite letra por letra la parte antes de la arroba con palabras de apoyo ("eme de mamá, a, ene, jota, a, erre, erre, e, zeta") y pregúntale si está bien.
+  Su nombre se escribe exactamente "${nameSpelling}": si el correo contiene su nombre o apellido, escríbelo con esa ortografía (por ejemplo z y no s, o al revés) salvo que te lo deletree distinto.
+  En agendar_reunion y registrar_resultado escribe el correo ya armado (nombre@dominio.com), sin espacios ni palabras como "arroba" o "punto".
 - Cuando elija horario y confirme sus datos, llama a agendar_reunion con el código del horario, el área de interés, lo que aprendiste del proyecto, su cargo y su celular si te los dio. Pasa el correo solo si dio uno distinto.
 - agendar_reunion te dice quién lo va a atender: díselo con naturalidad y cuéntale que esa persona le escribirá antes de la reunión.
 - Si no acepta, prefiere información por correo o te refiere a otra persona, llama a registrar_resultado con lo aprendido (y su correo si te lo dio).

@@ -2,6 +2,7 @@ import "server-only";
 import { after } from "next/server";
 import { db, getContact, logEvent, updateContact } from "./db";
 import { sendEmail } from "./email/send";
+import { reconcileEmail, spokenEmail } from "./email-fix";
 import { bookMeeting, formatSlot, getAvailableSlots, isSlotFree } from "./providers/calendar";
 import { assignRep } from "./reps";
 import { spokenSlot } from "./speech";
@@ -46,10 +47,19 @@ export async function bookForAgent(
     return { ok: true, message: "La reunión ya estaba agendada. Confírmasela y despídete con amabilidad." };
   }
 
-  const email = (emailOverride ?? contact.email ?? "").trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return { ok: false, message: "Falta un correo válido. Pídeselo con calma, repítelo para confirmar y vuelve a llamar a agendar_reunion." };
+  // El correo dictado por voz se reconcilia con el registrado y con la ortografía del nombre antes de enviar la invitación.
+  const check = await reconcileEmail(emailOverride, contact);
+  if (!check.email) {
+    if (emailOverride) await logEvent(contactId, "call", `Correo dictado rechazado: ${check.error}`, "warn");
+    return {
+      ok: false,
+      message: emailOverride
+        ? `Ese correo no parece válido (${check.error}). Pídele con calma que te lo deletree letra por letra, repítelo y vuelve a llamar a agendar_reunion.`
+        : "Falta un correo válido. Pídeselo con calma, deletréalo para confirmar y vuelve a llamar a agendar_reunion.",
+    };
   }
+  const email = check.email;
+  if (check.corrected) await logEvent(contactId, "call", `Correo ajustado antes de agendar: ${check.note}`, "warn", { dictado: emailOverride, usado: email });
   if (Number.isNaN(Date.parse(startIso))) {
     return { ok: false, message: "No entendí el horario. Llama a consultar_disponibilidad y usa el código de una de las opciones." };
   }
@@ -93,7 +103,7 @@ export async function bookForAgent(
       ok: true,
       rep,
       startsAt: m.startsAt,
-      message: `Quedó agendada para ${spokenSlot(m.startsAt)}.${repLine} En unos minutos te llega la invitación al correo. Díselo con calidez, con tus palabras, y despídete.`,
+      message: `Quedó agendada para ${spokenSlot(m.startsAt)}.${repLine} La invitación va a ${spokenEmail(email)}${check.corrected ? " (confírmale despacio ese correo, deletreando el apellido)" : ""}. Díselo con calidez, con tus palabras, y despídete.`,
     };
   } catch (e) {
     await logEvent(contactId, "calendar", `Error al agendar: ${(e as Error).message}`, "error");
@@ -108,7 +118,9 @@ export async function recordOutcome(
   qualification?: Qualification,
   email?: string | null,
 ) {
-  const validEmail = email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email.trim().toLowerCase() : null;
+  const check = email ? await reconcileEmail(email, contact) : null;
+  const validEmail = check?.email ?? null;
+  if (check?.corrected) await logEvent(contact.id, "call", `Correo ajustado: ${check.note}`, "warn", { dictado: email, usado: validEmail });
   await updateContact(contact.id, {
     call_outcome: outcome,
     call_summary: notes ?? contact.call_summary,

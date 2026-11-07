@@ -82,7 +82,10 @@ export const VAPI_TOOLS = [
         type: "object",
         properties: {
           inicio_iso: { type: "string", description: "El código entre corchetes del horario elegido en consultar_disponibilidad." },
-          correo: { type: "string", description: "Solo si la persona dio un correo distinto al registrado." },
+          correo: {
+            type: "string",
+            description: "Solo si la persona dio un correo distinto al registrado. Correo armado (nombre@dominio.com), con la ortografía exacta del nombre de la persona.",
+          },
           ...QUALIFICATION_PROPS,
         },
         required: ["inicio_iso"],
@@ -143,7 +146,13 @@ export function buildAssistant(contact: Contact, voice: AgentVoice, mode: "call"
       tools: mode === "call" ? VAPI_TOOLS : [{ type: "endCall" }],
     },
     voice: vapiVoice(voice),
-    transcriber: { provider: "deepgram", model: "nova-3", language: "es" },
+    // Nombre, apellido y empresa como términos clave: mejoran cómo se transcriben al dictar el correo.
+    transcriber: {
+      provider: "deepgram",
+      model: "nova-3",
+      language: "es",
+      keyterm: [contact.first_name, contact.last_name, ...contact.last_name.split(/\s+/), contact.company].filter((t, i, a): t is string => !!t && t.length > 2 && a.indexOf(t) === i).slice(0, 8),
+    },
     backgroundSound: "office",
     startSpeakingPlan: { waitSeconds: 0.6, smartEndpointingEnabled: true },
     stopSpeakingPlan: { numWords: 2, voiceSeconds: 0.3, backoffSeconds: 1 },
