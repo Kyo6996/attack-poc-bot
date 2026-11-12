@@ -27,6 +27,11 @@ export async function findLinkedInProfile(contact: Contact): Promise<LinkedInRes
   const scored = await score(contact, real.candidates);
   const company = await withApolloOrg(live && contact.company ? await companyInfo(contact.company, contact.city) : null, contact);
   const top = scored[0] ?? null;
+  // Si el mejor candidato salió de una publicación, se confirma que su perfil exista antes de aceptarlo.
+  if (live && top?.fromPost && top.confidence >= AUTO && (await profileExists(top.url))) {
+    top.fromPost = false;
+    top.reason = `${top.reason} · perfil verificado en Google`;
+  }
 
   let decision: LinkedInResult["decision"] = "not_found";
   let best: LinkedInCandidate | null = null;
@@ -72,6 +77,19 @@ export function buildProfile(c: LinkedInCandidate | null, company: CompanyInfo |
 interface SerperResult {
   organic?: { link: string; title: string; snippet?: string }[];
   knowledgeGraph?: { title?: string; type?: string; website?: string; description?: string; attributes?: Record<string, string> };
+}
+
+// Busca la página de perfil exacta (por su identificador final) para validar una URL deducida de una publicación.
+async function profileExists(url: string): Promise<boolean> {
+  const slug = url.split("/in/")[1]?.replace(/\/$/, "");
+  if (!slug) return false;
+  const id = slug.match(/-([a-z0-9]*\d[a-z0-9]{5,})$/)?.[1] ?? slug;
+  try {
+    const r = await serper(`site:linkedin.com/in "${slug}"`);
+    return (r.organic ?? []).some((o) => /linkedin\.com\/in\//i.test(o.link) && o.link.toLowerCase().includes(id.toLowerCase()));
+  } catch {
+    return false;
+  }
 }
 
 async function serper(q: string): Promise<SerperResult> {

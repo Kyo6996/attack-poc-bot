@@ -97,6 +97,7 @@ const REP_FORM: Field[] = [
 ];
 
 const RUNNABLE: ContactStatus[] = ["pending", "linkedin_found", "phone_found"];
+const CALLABLE: ContactStatus[] = ["linkedin_found", "phone_found", "no_answer", "call_failed", "declined", "skipped", "needs_review"];
 
 const tz = { timeZone: "America/Bogota" } as const;
 const fmtDate = (iso: string) =>
@@ -212,6 +213,28 @@ export function Dashboard({ section }: { section: Section }) {
     return () => clearInterval(t);
   }, [auto, busy, run]);
 
+
+  // Llama ahora a un solo contacto. Si el número no está autorizado, pide confirmar el consentimiento primero.
+  async function callNow(c: Contact) {
+    const live = state?.settings?.live_numbers ?? [];
+    if (c.phone && !live.includes(c.phone)) {
+      const real = confirm(`El ${c.phone} no está autorizado para llamada real.\n\nAceptar: ${c.first_name} dio su consentimiento y se autoriza para llamarlo de verdad.\nCancelar: se hace una llamada simulada.`);
+      if (real) {
+        const err = await send("/api/settings", "POST", { authorize: c.phone });
+        if (err) return setMsg(err);
+      }
+    }
+    setBusy(true);
+    setMsg(`Llamando a ${c.first_name}…`);
+    try {
+      const res = await fetch(`/api/contacts/${c.id}/call`, { method: "POST" });
+      const json = await res.json();
+      setMsg(res.ok ? `Llamada iniciada a ${c.first_name}` : `No se pudo llamar: ${json.error}`);
+    } finally {
+      setBusy(false);
+      load();
+    }
+  }
 
   async function reprocess(c: Contact) {
     const err = await send(`/api/contacts/${c.id}`, "PATCH", { reprocess: true });
@@ -463,6 +486,10 @@ export function Dashboard({ section }: { section: Section }) {
                                 <span className="badge b-info">SignalHire</span>
                                 <div className="s">identidad {Math.round((c.linkedin_confidence ?? 0) * 100)}%</div>
                               </>
+                            ) : (c.linkedin_candidates?.length ?? 0) > 0 && c.status !== "calling" ? (
+                              <button className="sm" onClick={() => setReviewing(c)} title="Hay perfiles posibles sin confirmar">
+                                Elegir perfil ({c.linkedin_candidates!.length})
+                              </button>
                             ) : (
                               <span className="s">—</span>
                             )}
@@ -499,6 +526,11 @@ export function Dashboard({ section }: { section: Section }) {
                             {RUNNABLE.includes(c.status) && (
                               <button className="sm" onClick={() => run(c.id)} disabled={busy} title="Procesar solo este contacto">
                                 ▶
+                              </button>
+                            )}
+                            {c.phone && CALLABLE.includes(c.status) && (
+                              <button className="sm primary" onClick={() => callNow(c)} disabled={busy} title="Llamar ahora solo a este contacto, sin reprocesarlo">
+                                📞 Llamar
                               </button>
                             )}
                             {!RUNNABLE.includes(c.status) && c.status !== "calling" && (
