@@ -84,7 +84,11 @@ export const VAPI_TOOLS = [
           inicio_iso: { type: "string", description: "El código entre corchetes del horario elegido en consultar_disponibilidad." },
           correo: {
             type: "string",
-            description: "Solo si la persona dio un correo distinto al registrado. Correo armado (nombre@dominio.com), con la ortografía exacta del nombre de la persona.",
+            description: "Solo si la persona dio un correo distinto al registrado. Correo armado (nombre@dominio.com), tal como lo deletreó.",
+          },
+          correo_deletreado: {
+            type: "boolean",
+            description: "true solo si la persona te deletreó letra por letra la parte antes de la arroba y te confirmó tu repetición.",
           },
           ...QUALIFICATION_PROPS,
         },
@@ -112,6 +116,7 @@ export const VAPI_TOOLS = [
             enum: ["no_interesa", "enviar_info_correo", "llamar_despues", "persona_equivocada", "referido", "no_contactar"],
           },
           correo: { type: "string", description: "Correo que dio la persona, si lo dio." },
+          correo_deletreado: { type: "boolean", description: "true solo si te deletreó el correo y confirmó tu repetición." },
           referido: { type: "string", description: "Nombre y contacto de la persona indicada, si lo compartió." },
           notas: { type: "string" },
           ...QUALIFICATION_PROPS,
@@ -146,18 +151,28 @@ export function buildAssistant(contact: Contact, voice: AgentVoice, mode: "call"
       tools: mode === "call" ? VAPI_TOOLS : [{ type: "endCall" }],
     },
     voice: vapiVoice(voice),
-    // Nombre, apellido y empresa como términos clave: mejoran cómo se transcriben al dictar el correo.
+    // Cada nombre y apellido por separado, la empresa y las palabras del dictado de correos como términos clave.
     transcriber: {
       provider: "deepgram",
       model: "nova-3",
       language: "es",
-      keyterm: [contact.first_name, contact.last_name, ...contact.last_name.split(/\s+/), contact.company].filter((t, i, a): t is string => !!t && t.length > 2 && a.indexOf(t) === i).slice(0, 8),
+      keyterm: [
+        contact.first_name,
+        ...contact.first_name.split(/\s+/),
+        contact.last_name,
+        ...contact.last_name.split(/\s+/),
+        contact.company,
+        "arroba",
+        "Gmail",
+        "Hotmail",
+        "Outlook",
+      ].filter((t, i, a): t is string => !!t && t.length > 2 && a.indexOf(t) === i).slice(0, 14),
     },
     backgroundSound: "office",
-    startSpeakingPlan: { waitSeconds: 0.6, smartEndpointingEnabled: true },
+    // Espera un poco más antes de responder para no cortar a quien dicta o piensa en voz alta.
+    startSpeakingPlan: { waitSeconds: 0.8, smartEndpointingEnabled: true },
     stopSpeakingPlan: { numWords: 2, voiceSeconds: 0.3, backoffSeconds: 1 },
     maxDurationSeconds: mode === "call" ? 420 : 240,
-    endCallMessage: "Mil gracias por tu tiempo. ¡Que tengas un excelente día!",
     artifactPlan: { recordingEnabled: false },
   };
   if (mode === "preview") return base;

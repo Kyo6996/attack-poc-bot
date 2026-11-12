@@ -27,8 +27,8 @@ export async function sendBookingSms(contact: Contact, startsAt: string): Promis
   }
 
   const body = gsm(
-    `Hola ${contact.first_name}, tu reunion con ${env.brandName()} quedo agendada para el ${formatSlot(startsAt)}. ` +
-      `Ya te enviamos los detalles a tu correo. ¡Muchas gracias por tu confianza!`,
+    `Hola ${contact.first_name.split(/\s+/)[0]}, tu reunion con ${env.brandName()} quedo agendada: ${formatSlot(startsAt).replace(/\.$/, "")}. ` +
+      `Te enviamos los detalles a tu correo. ¡Gracias por tu confianza!`,
   );
   try {
     const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {

@@ -121,8 +121,16 @@ async function runTool(contact: Contact, tc: ToolCall): Promise<string> {
       case "consultar_disponibilidad":
         return await availabilityForAgent(contact.id);
       case "agendar_reunion":
+        // Un correo dictado no se usa hasta que la persona lo haya deletreado: la transcripción suele perder letras o nombres.
+        if (args.correo && String(args.correo_deletreado) !== "true") {
+          await logEvent(contact.id, "call", `Correo dictado sin deletrear (${args.correo}): se pide deletrearlo antes de agendar`, "warn");
+          return `Todavía no agendes. Pídele con naturalidad que te deletree, letra por letra, lo que va antes de la arroba ("para que la invitación te llegue sin error, ¿me lo deletreas?"). Escúchalo completo, repíteselo letra por letra en español, y cuando te confirme vuelve a llamar a agendar_reunion con el correo corregido y correo_deletreado en true.`;
+        }
         return (await bookForAgent(contact.id, args.inicio_iso, args.correo || null, qualificationFrom(args))).message;
       case "registrar_resultado":
+        if (args.correo && String(args.correo_deletreado) !== "true") {
+          return "Antes de registrar, pídele que te deletree letra por letra lo que va antes de la arroba, repíteselo en español y, cuando te confirme, vuelve a llamar a registrar_resultado con correo_deletreado en true.";
+        }
         await recordOutcome(contact, args.resultado, args.notas, { ...qualificationFrom(args), referido: args.referido }, args.correo);
         return args.resultado === "enviar_info_correo"
           ? "Registrado. El correo con la información sale en unos minutos: díselo, agradece y despídete."
