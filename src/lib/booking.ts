@@ -45,7 +45,7 @@ export async function bookForAgent(
 
   const { data: existing } = await db().from("meetings").select("id").eq("contact_id", contactId).limit(1);
   if (existing && existing.length > 0) {
-    return { ok: true, message: "La reunión ya estaba agendada. Confírmasela y despídete con amabilidad." };
+    return { ok: true, message: "La reunión ya estaba agendada. Confírmale el día y la hora, y pregúntale si hay algo más en lo que puedas ayudar." };
   }
 
   // El correo dictado por voz se reconcilia con el registrado y con la ortografía del nombre antes de enviar la invitación.
@@ -105,7 +105,7 @@ export async function bookForAgent(
       ok: true,
       rep,
       startsAt: m.startsAt,
-      message: `Quedó agendada para ${spokenSlot(m.startsAt)}.${repLine} La invitación y los detalles le llegan a su correo (no se lo vuelvas a leer completo). Díselo con calidez, con tus palabras, y despídete.`,
+      message: `Quedó agendada para ${spokenSlot(m.startsAt)}.${repLine} La invitación y los detalles le llegan a su correo (no se lo vuelvas a leer completo). Díselo con calidez, con tus palabras, y pregúntale si hay algo más en lo que puedas ayudar (aún sin despedirte).`,
     };
   } catch (e) {
     await logEvent(contactId, "calendar", `Error al agendar: ${(e as Error).message}`, "error");

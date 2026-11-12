@@ -156,7 +156,7 @@ export function buildAssistant(contact: Contact, voice: AgentVoice, mode: "call"
     model: {
       provider: env.vapiModelProvider(),
       model: env.vapiModel(),
-      temperature: 0.4,
+      temperature: 0.6,
       messages: [{ role: "system", content: buildSystemPrompt(contact, voice.agentName) + (mode === "preview" ? DEMO_NOTE : "") }],
       tools: mode === "call" ? VAPI_TOOLS : [{ type: "endCall" }],
     },
@@ -180,9 +180,17 @@ export function buildAssistant(contact: Contact, voice: AgentVoice, mode: "call"
     },
     backgroundSound: "office",
     // Espera un poco más antes de responder para no cortar a quien dicta o piensa en voz alta.
-    startSpeakingPlan: { waitSeconds: 0.8, smartEndpointingEnabled: true },
+    // El detector "inteligente" de fin de turno está afinado para inglés; en español se decide por puntuación y silencio,
+    // esperando más cuando la frase quedó abierta (sin punto) para no cortar a la persona a mitad de idea.
+    startSpeakingPlan: {
+      waitSeconds: 0.6,
+      smartEndpointingEnabled: false,
+      transcriptionEndpointingPlan: { onPunctuationSeconds: 0.4, onNoPunctuationSeconds: 1.4, onNumberSeconds: 1.0 },
+    },
     stopSpeakingPlan: { numWords: 2, voiceSeconds: 0.3, backoffSeconds: 1 },
     maxDurationSeconds: mode === "call" ? 420 : 240,
+    // Frase de despedida final: al decirla, Vapi cuelga solo aunque el modelo no llame a endCall.
+    endCallPhrases: ["hasta pronto, que estés muy bien"],
     artifactPlan: { recordingEnabled: false },
   };
   if (mode === "preview") return base;

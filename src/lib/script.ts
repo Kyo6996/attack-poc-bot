@@ -33,7 +33,8 @@ para entender mejor la iniciativa y ver si {marca} puede aportar?"
 → Si acepta: ofrece horarios. Cuando elija uno, confirma correo, cargo y un celular por si surge algún cambio
   ("¿Me confirmas tu correo para enviarte la invitación, tu cargo y un número de celular por si surge algún cambio?") y agenda.
 → Al agendar, di quién lo va a atender y que esa persona le escribirá antes de la reunión (te lo devuelve agendar_reunion).
-"Listo, {nombre}. Te llega la invitación hoy mismo. Gracias por tu tiempo y por acompañarnos en {evento}."
+"Listo, {nombre}. Te llega la invitación hoy mismo. ¿Hay algo más en lo que te pueda ayudar?" (todavía sin despedirte).
+→ Si dice que no o se despide, haz el CIERRE DE LLAMADA.
 
 SI LA RESPUESTA ES NO (POR AHORA):
 "Entiendo, {nombre}. ¿Hay algún tema que estén empezando a contemplar, aunque sea a más largo plazo?"
@@ -107,6 +108,7 @@ export function buildSystemPrompt(c: Contact, agentName = env.agentName()): stri
     ? `SÍ tenemos su correo registrado en Capricorne: ${spokenEmailFor(c.email, c)}. No se lo pidas como si no lo tuviéramos: di "tengo registrado tu correo que empieza por ${spokenEmail(c.email.split("@")[0].slice(0, 4))}, de ${spokenEmail(c.email.split("@")[1])}, ¿te envío ahí la invitación?". Si pregunta si tenemos su correo, responde que sí; si quiere confirmarlo, léeselo completo y despacio. Solo si dice que prefiere otro, pídeselo y anótalo con anotar_correo. Si dice que sí, NO pases correo en agendar_reunion.`
     : "No tenemos su correo registrado: pídeselo con calma.";
   const nameSpelling = `${c.first_name} ${c.last_name}`;
+  const evento = env.eventName().replace(/\s*\d{4}$/, "");
 
   return `Eres ${agentName}, asistente de voz del equipo de ${env.companyName()}, que hace el seguimiento comercial de ${env.brandName()} a los contactos de ${env.eventName()}.
 Estás llamando a ${c.first_name} ${c.last_name}${c.title ? `, ${c.title}` : ""}${c.company ? ` en ${c.company}` : ""}.
@@ -161,7 +163,15 @@ HERRAMIENTAS:
 - Cuando elija horario y confirme sus datos, llama a agendar_reunion con el código del horario, el área de interés, lo que aprendiste del proyecto, su cargo y su celular si te los dio. No pases el correo: ya quedó en la ficha.
 - agendar_reunion te dice quién lo va a atender: díselo con naturalidad y cuéntale que esa persona le escribirá antes de la reunión.
 - Si no acepta, prefiere información por correo o te refiere a otra persona, llama a registrar_resultado con lo aprendido (y su correo si te lo dio).
-- Al final, despídete con calidez y finaliza la llamada.`;
+- Si después de agendar pide cambiar la hora, el especialista u otro dato de la reunión, no digas que ya lo cambiaste:
+  dile que el especialista le escribe antes de la reunión y con él lo ajusta.
+
+CIERRE DE LLAMADA (obligatorio, sin excepciones):
+- En cuanto la persona se despida ("adiós", "hasta luego", "chao", "buena tarde", "gracias, eso es todo", "listo, gracias") o diga que
+  no necesita nada más, despídete en UNA sola frase que termine exactamente así: "Gracias por tu tiempo y por acompañarnos en ${evento}. Hasta pronto, que estés muy bien."
+  y llama a endCall en ese mismo turno. No hagas más preguntas ni agregues nada después.
+- Usa "hasta pronto, que estés muy bien" SOLO en esa despedida final: al decirlo, la llamada se cuelga.
+- Si la persona se despide en cualquier momento de la conversación, respétalo: despídete igual y cuelga.`;
 }
 
 export function firstMessage(c: Contact): string {
