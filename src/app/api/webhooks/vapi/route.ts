@@ -144,8 +144,8 @@ async function runTool(contact: Contact, tc: ToolCall): Promise<string> {
       case "registrar_resultado":
         await recordOutcome(contact, args.resultado, args.notas, { ...qualificationFrom(args), referido: args.referido }, contact.email ? null : args.correo);
         return args.resultado === "enviar_info_correo"
-          ? "Registrado. El correo con la información sale en unos minutos: díselo, agradece y despídete."
-          : "Registrado. Agradece con calidez y despídete.";
+          ? "Registrado. El correo con la información sale en unos minutos: díselo, agradece y haz el cierre de llamada completo."
+          : "Registrado. Agradece con calidez y haz el cierre de llamada completo (termina con \"Hasta pronto, que estés muy bien.\").";
       default:
         return "Herramienta desconocida.";
     }
