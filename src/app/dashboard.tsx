@@ -460,6 +460,7 @@ export function Dashboard({ section }: { section: Section }) {
                                 {c.first_name} {c.last_name}
                               </b>
                             </div>
+                            {c.email && <div className="s mono">✉ {c.email}</div>}
                             <div className="s">
                               {c.title} · {c.company}
                               {!c.consent && " · sin consentimiento"}

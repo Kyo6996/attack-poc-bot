@@ -5,6 +5,7 @@ import { getSettings } from "../settings";
 import type { Contact } from "../types";
 import { formatSlot } from "./calendar";
 
+// Sin nombres de marca: los operadores en Colombia filtran SMS internacionales con marcas aunque Twilio los reporte entregados.
 // Texto en GSM-7 (sin tildes ni espacios especiales) para que quepa en un solo SMS y cueste un segmento.
 function gsm(text: string): string {
   return text.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
@@ -27,7 +28,7 @@ export async function sendBookingSms(contact: Contact, startsAt: string): Promis
   }
 
   const body = gsm(
-    `Hola ${contact.first_name.split(/\s+/)[0]}, tu reunion con ${env.brandName()} quedo agendada: ${formatSlot(startsAt).replace(/\.$/, "")}. ` +
+    `Hola ${contact.first_name.split(/\s+/)[0]}, tu reunion quedo agendada:${formatSlot(startsAt).replace(/\.$/, "")}. ` +
       `Te enviamos los detalles a tu correo. ¡Gracias por tu confianza!`,
   );
   try {

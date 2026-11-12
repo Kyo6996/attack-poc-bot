@@ -2,6 +2,7 @@ import { after, NextResponse, type NextRequest } from "next/server";
 import { availabilityForAgent, bookForAgent, recordOutcome } from "@/lib/booking";
 import { finishVapiCall } from "@/lib/callresult";
 import { db, logEvent, updateContact } from "@/lib/db";
+import { reconcileEmail, spokenEmailFor } from "@/lib/email-fix";
 import { env } from "@/lib/env";
 import { safeEqual } from "@/lib/security";
 import { runPipeline } from "@/lib/pipeline";
@@ -113,6 +114,21 @@ function qualificationFrom(a: Record<string, string>) {
   };
 }
 
+// Guarda en la ficha el correo apenas lo dicta, ya normalizado, para verlo en vivo en el panel y corregirlo si hace falta.
+async function noteEmail(contact: Contact, dictated: string | undefined): Promise<string> {
+  const check = await reconcileEmail(dictated, contact);
+  if (!dictated?.trim() || !check.email) {
+    await logEvent(contact.id, "call", `Correo dictado no válido: ${dictated ?? "vacío"} (${check.error})`, "warn");
+    return "No me quedó claro el correo. Pídeselo otra vez con calma, como en una conversación normal.";
+  }
+  if (check.email !== contact.email) {
+    await updateContact(contact.id, { email: check.email });
+  }
+  await logEvent(contact.id, "call", `Correo anotado en la llamada: ${check.email}`, "success", { dictado: dictated, anterior: contact.email, nota: check.note });
+  const spoken = spokenEmailFor(check.email, contact);
+  return `Anotado. Confírmaselo una sola vez, despacio y natural, tal cual: "${spoken}". Si te corrige algo, vuelve a llamar a anotar_correo con el correo completo corregido. Ya quedó en la ficha: no lo pases en agendar_reunion.`;
+}
+
 async function runTool(contact: Contact, tc: ToolCall): Promise<string> {
   const args = parseArgs(tc.function.arguments);
   await logEvent(contact.id, "call", `Tool → ${tc.function.name}`, "info", args);
@@ -120,18 +136,13 @@ async function runTool(contact: Contact, tc: ToolCall): Promise<string> {
     switch (tc.function.name) {
       case "consultar_disponibilidad":
         return await availabilityForAgent(contact.id);
+      case "anotar_correo":
+        return await noteEmail(contact, args.correo);
+      // Si ya hay correo en la ficha (anotado en la llamada o corregido en vivo desde el panel), manda ese y no el que pase el modelo.
       case "agendar_reunion":
-        // Un correo dictado no se usa hasta que la persona lo haya deletreado: la transcripción suele perder letras o nombres.
-        if (args.correo && String(args.correo_deletreado) !== "true") {
-          await logEvent(contact.id, "call", `Correo dictado sin deletrear (${args.correo}): se pide deletrearlo antes de agendar`, "warn");
-          return `Todavía no agendes. Pídele con naturalidad que te deletree, letra por letra, lo que va antes de la arroba ("para que la invitación te llegue sin error, ¿me lo deletreas?"). Escúchalo completo, repíteselo letra por letra en español, y cuando te confirme vuelve a llamar a agendar_reunion con el correo corregido y correo_deletreado en true.`;
-        }
-        return (await bookForAgent(contact.id, args.inicio_iso, args.correo || null, qualificationFrom(args))).message;
+        return (await bookForAgent(contact.id, args.inicio_iso, contact.email ? null : args.correo || null, qualificationFrom(args))).message;
       case "registrar_resultado":
-        if (args.correo && String(args.correo_deletreado) !== "true") {
-          return "Antes de registrar, pídele que te deletree letra por letra lo que va antes de la arroba, repíteselo en español y, cuando te confirme, vuelve a llamar a registrar_resultado con correo_deletreado en true.";
-        }
-        await recordOutcome(contact, args.resultado, args.notas, { ...qualificationFrom(args), referido: args.referido }, args.correo);
+        await recordOutcome(contact, args.resultado, args.notas, { ...qualificationFrom(args), referido: args.referido }, contact.email ? null : args.correo);
         return args.resultado === "enviar_info_correo"
           ? "Registrado. El correo con la información sale en unos minutos: díselo, agradece y despídete."
           : "Registrado. Agradece con calidez y despídete.";

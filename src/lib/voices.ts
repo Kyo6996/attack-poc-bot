@@ -41,10 +41,11 @@ export function vapiVoice(v: AgentVoice) {
     return {
       provider: "11labs",
       voiceId: v.voiceId,
-      model: v.model ?? "eleven_flash_v2_5",
-      stability: 0.45,
+      // Turbo entona mejor preguntas y exclamaciones que Flash, con una latencia casi igual.
+      model: !v.model || v.model === "eleven_flash_v2_5" ? "eleven_turbo_v2_5" : v.model,
+      stability: 0.35,
       similarityBoost: 0.8,
-      style: 0.2,
+      style: 0.35,
       useSpeakerBoost: true,
       speed: v.speed,
       // Si ElevenLabs falla (plan, cuota o caída), Vapi sigue la llamada con Salomé en vez de quedar en silencio.

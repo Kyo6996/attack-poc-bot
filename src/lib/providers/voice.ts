@@ -61,6 +61,24 @@ export const VAPI_TOOLS = [
   {
     type: "function",
     function: {
+      name: "anotar_correo",
+      description:
+        "Llámala apenas la persona te dicte un correo (o lo corrija). Lo guarda en la ficha al instante y te devuelve cómo leérselo para confirmarlo.",
+      parameters: {
+        type: "object",
+        properties: {
+          correo: {
+            type: "string",
+            description: "Correo armado (nombre@dominio.com), sin espacios, con la ortografía exacta del nombre de la persona.",
+          },
+        },
+        required: ["correo"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "consultar_disponibilidad",
       description: "Devuelve los próximos horarios libres para la conversación con el especialista (hora Colombia).",
       parameters: { type: "object", properties: {} },
@@ -82,14 +100,7 @@ export const VAPI_TOOLS = [
         type: "object",
         properties: {
           inicio_iso: { type: "string", description: "El código entre corchetes del horario elegido en consultar_disponibilidad." },
-          correo: {
-            type: "string",
-            description: "Solo si la persona dio un correo distinto al registrado. Correo armado (nombre@dominio.com), tal como lo deletreó.",
-          },
-          correo_deletreado: {
-            type: "boolean",
-            description: "true solo si la persona te deletreó letra por letra la parte antes de la arroba y te confirmó tu repetición.",
-          },
+          correo: { type: "string", description: "No lo uses si ya llamaste a anotar_correo." },
           ...QUALIFICATION_PROPS,
         },
         required: ["inicio_iso"],
@@ -116,7 +127,6 @@ export const VAPI_TOOLS = [
             enum: ["no_interesa", "enviar_info_correo", "llamar_despues", "persona_equivocada", "referido", "no_contactar"],
           },
           correo: { type: "string", description: "Correo que dio la persona, si lo dio." },
-          correo_deletreado: { type: "boolean", description: "true solo si te deletreó el correo y confirmó tu repetición." },
           referido: { type: "string", description: "Nombre y contacto de la persona indicada, si lo compartió." },
           notas: { type: "string" },
           ...QUALIFICATION_PROPS,

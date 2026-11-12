@@ -123,6 +123,53 @@ export async function reconcileEmail(dictated: string | null | undefined, c: Con
   return { email, corrected, note: corrected ? `se corrigió "${original}" a ${email} (ortografía del nombre registrado)` : null, error: null };
 }
 
+const DIGIT_WORDS = ["cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve"];
+
+// Parte el usuario del correo en palabras pronunciables: nombres del lead, números en palabras y el resto como viene.
+// "hansdavidmanjarrez1" → "hans david manjarrez uno", para que la voz no lo lea como una sola palabra.
+export function spokenEmailFor(email: string, c: Pick<Contact, "first_name" | "last_name">): string {
+  const [local, domain = ""] = email.split("@");
+  const names = `${c.first_name} ${c.last_name}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .split(/\s+/)
+    .filter((n) => n.length > 1)
+    .sort((a, b) => b.length - a.length);
+  const parts: string[] = [];
+  let rest = "";
+  const flush = () => {
+    if (rest) parts.push(rest);
+    rest = "";
+  };
+  for (let i = 0; i < local.length; ) {
+    const ch = local[i];
+    const name = names.find((n) => local.startsWith(n, i));
+    if (name) {
+      flush();
+      parts.push(name);
+      i += name.length;
+    } else if (/\d/.test(ch)) {
+      flush();
+      parts.push(DIGIT_WORDS[Number(ch)]);
+      i++;
+    } else if (ch === ".") {
+      flush();
+      parts.push("punto");
+      i++;
+    } else if (ch === "_" || ch === "-") {
+      flush();
+      parts.push(ch === "_" ? "guion bajo" : "guion");
+      i++;
+    } else {
+      rest += ch;
+      i++;
+    }
+  }
+  flush();
+  return `${parts.join(" ")} arroba ${domain.replace(/\./g, " punto ")}`.replace(/\s+/g, " ").trim();
+}
+
 // Cómo debe pronunciar el agente un correo para confirmarlo.
 export function spokenEmail(email: string): string {
   return email.replace(/@/g, " arroba ").replace(/\./g, " punto ").replace(/_/g, " guion bajo ").replace(/-/g, " guion ");

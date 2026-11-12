@@ -2,7 +2,7 @@ import "server-only";
 import { after } from "next/server";
 import { db, getContact, logEvent, updateContact } from "./db";
 import { sendEmail } from "./email/send";
-import { reconcileEmail, spokenEmail } from "./email-fix";
+import { reconcileEmail } from "./email-fix";
 import { bookMeeting, formatSlot, getAvailableSlots, isSlotFree } from "./providers/calendar";
 import { sendBookingSms } from "./providers/sms";
 import { assignRep } from "./reps";
@@ -105,7 +105,7 @@ export async function bookForAgent(
       ok: true,
       rep,
       startsAt: m.startsAt,
-      message: `Quedó agendada para ${spokenSlot(m.startsAt)}.${repLine} La invitación va a ${spokenEmail(email)}${check.corrected ? " (confírmale despacio ese correo, deletreando el apellido)" : ""}. Díselo con calidez, con tus palabras, y despídete.`,
+      message: `Quedó agendada para ${spokenSlot(m.startsAt)}.${repLine} La invitación y los detalles le llegan a su correo (no se lo vuelvas a leer completo). Díselo con calidez, con tus palabras, y despídete.`,
     };
   } catch (e) {
     await logEvent(contactId, "calendar", `Error al agendar: ${(e as Error).message}`, "error");

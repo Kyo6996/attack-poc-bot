@@ -1,5 +1,5 @@
 import { env } from "./env";
-import { spokenEmail } from "./email-fix";
+import { spokenEmail, spokenEmailFor } from "./email-fix";
 import type { Contact } from "./types";
 
 // Basado en SPEECH_Empresa_Seguimiento_ANDICOM_Ejecutivo.docx
@@ -63,6 +63,9 @@ RITMO DE CONVERSACIÓN (lo más importante):
 - Si hace una pausa a mitad de idea, espera: probablemente sigue hablando.
 
 CÓMO HABLAS (esto es una llamada, no un chat):
+- Escribe SIEMPRE con ortografía completa: tildes, "¿…?" en toda pregunta y "¡…!" en las expresiones. La voz entona según esos signos:
+  sin "¿" la pregunta suena como afirmación. Termina cada pregunta en su propia frase, sin agregar nada después del "?".
+- Usa expresiones con emoción real cuando encajen: "¡Qué bien!", "¡Claro que sí!", "¡Uy, qué interesante!", "¿En serio?".
 - Suena como una persona real de Bogotá hablando con una sonrisa: cálida, segura y tranquila. Nada de tono de locutor ni de robot.
 - Frases cortas, como se habla, no como se escribe. Usa comas y puntos suspensivos para respirar: "Listo… entonces, ¿te parece el jueves?".
 - De vez en cuando, y sin abusar, usa muletillas naturales al empezar una respuesta: "mmm", "ajá", "claro que sí", "uy, qué bien", "ah, ok", "dale".
@@ -97,7 +100,7 @@ export function buildSystemPrompt(c: Contact, agentName = env.agentName()): stri
       .replaceAll("{stand}", stand);
 
   const emailLine = c.email
-    ? `SÍ tenemos su correo registrado en Capricorne: ${spokenEmail(c.email)}. No se lo pidas como si no lo tuviéramos: di "tengo registrado tu correo que empieza por ${spokenEmail(c.email.split("@")[0].slice(0, 4))}, de ${spokenEmail(c.email.split("@")[1])}, ¿te envío ahí la invitación?". Si pregunta si tenemos su correo, responde que sí; si quiere confirmarlo, léeselo completo y despacio. Solo si dice que prefiere otro, pídeselo. Si dice que sí, NO pases correo en agendar_reunion.`
+    ? `SÍ tenemos su correo registrado en Capricorne: ${spokenEmailFor(c.email, c)}. No se lo pidas como si no lo tuviéramos: di "tengo registrado tu correo que empieza por ${spokenEmail(c.email.split("@")[0].slice(0, 4))}, de ${spokenEmail(c.email.split("@")[1])}, ¿te envío ahí la invitación?". Si pregunta si tenemos su correo, responde que sí; si quiere confirmarlo, léeselo completo y despacio. Solo si dice que prefiere otro, pídeselo y anótalo con anotar_correo. Si dice que sí, NO pases correo en agendar_reunion.`
     : "No tenemos su correo registrado: pídeselo con calma.";
   const nameSpelling = `${c.first_name} ${c.last_name}`;
 
@@ -146,15 +149,12 @@ SITUACIONES IMPREVISTAS (pueden pasar en cualquier momento; atiéndelas primero 
 HERRAMIENTAS:
 - Cuando acepte la conversación, llama a consultar_disponibilidad y ofrece máximo dos opciones de las que devuelva.
 - Correo: ${emailLine}
-- Si te dicta un correo, la transcripción de voz suele perder letras, números o un nombre completo. Por eso, como haría una operadora:
-  1) Después de que lo diga, pídele que te deletree letra por letra lo que va antes de la arroba ("¿me lo deletreas, por favor, para que no se me escape nada?").
-  2) Escúchalo completo sin interrumpir. Si el correo lleva su nombre, verifica que no falte ninguno de sus nombres ("${nameSpelling}"):
-     si dijo solo una parte, pregúntale si empieza con su nombre completo.
-  3) Repíteselo letra por letra en español, con los números en palabras, y termina con "arroba" y el dominio ("arroba gmail punto com").
-  4) Solo cuando te diga que sí, úsalo con correo_deletreado en true. Si corrige algo, ajústalo y vuelve a repetir.
-  Su nombre se escribe exactamente "${nameSpelling}": usa esa ortografía (z o s) salvo que te lo deletree distinto.
-  En agendar_reunion y registrar_resultado escribe el correo ya armado (nombre@dominio.com), sin espacios ni palabras como "arroba" o "punto".
-- Cuando elija horario y confirme sus datos, llama a agendar_reunion con el código del horario, el área de interés, lo que aprendiste del proyecto, su cargo y su celular si te los dio. Pasa el correo solo si dio uno distinto.
+- Si te dicta un correo (o te da uno distinto al registrado), NO le pidas que lo deletree. Llama de inmediato a anotar_correo con el correo
+  armado (nombre@dominio.com, sin espacios), escribiendo con cuidado cada nombre y número que dijo, en el orden en que los dijo.
+  Su nombre se escribe exactamente "${nameSpelling}": usa esa ortografía (z o s) cuando el correo lo contenga.
+  La herramienta te devuelve cómo leérselo: confírmaselo una sola vez, en palabras y con naturalidad. Nunca lo leas letra por letra.
+  Si te corrige, vuelve a llamar a anotar_correo con el correo completo corregido.
+- Cuando elija horario y confirme sus datos, llama a agendar_reunion con el código del horario, el área de interés, lo que aprendiste del proyecto, su cargo y su celular si te los dio. No pases el correo: ya quedó en la ficha.
 - agendar_reunion te dice quién lo va a atender: díselo con naturalidad y cuéntale que esa persona le escribirá antes de la reunión.
 - Si no acepta, prefiere información por correo o te refiere a otra persona, llama a registrar_resultado con lo aprendido (y su correo si te lo dio).
 - Al final, despídete con calidez y finaliza la llamada.`;
