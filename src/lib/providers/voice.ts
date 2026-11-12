@@ -156,7 +156,7 @@ export function buildAssistant(contact: Contact, voice: AgentVoice, mode: "call"
     model: {
       provider: env.vapiModelProvider(),
       model: env.vapiModel(),
-      temperature: 0.7,
+      temperature: 0.4,
       messages: [{ role: "system", content: buildSystemPrompt(contact, voice.agentName) + (mode === "preview" ? DEMO_NOTE : "") }],
       tools: mode === "call" ? VAPI_TOOLS : [{ type: "endCall" }],
     },
