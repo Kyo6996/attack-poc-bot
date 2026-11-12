@@ -41,13 +41,14 @@ export function vapiVoice(v: AgentVoice) {
     return {
       provider: "11labs",
       voiceId: v.voiceId,
-      // Turbo entona mejor preguntas y exclamaciones que Flash, con una latencia casi igual.
-      model: !v.model || v.model === "eleven_flash_v2_5" ? "eleven_turbo_v2_5" : v.model,
-      stability: 0.35,
+      model: v.model ?? "eleven_flash_v2_5",
+      // Estable y con poco estilo: tono parejo y pausado, igual a la muestra de la voz, sin exagerar la entonación.
+      stability: 0.55,
       similarityBoost: 0.8,
-      style: 0.35,
+      style: 0.1,
       useSpeakerBoost: true,
-      speed: v.speed,
+      // La voz se oye más rápida por teléfono que en la muestra: se limita a un ritmo pausado.
+      speed: Math.min(v.speed, 0.9),
       // Si ElevenLabs falla (plan, cuota o caída), Vapi sigue la llamada con Salomé en vez de quedar en silencio.
       fallbackPlan: { voices: [{ provider: "azure", voiceId: "es-CO-SalomeNeural" }] },
     };
