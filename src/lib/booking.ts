@@ -4,6 +4,7 @@ import { db, getContact, logEvent, updateContact } from "./db";
 import { sendEmail } from "./email/send";
 import { reconcileEmail, spokenEmail } from "./email-fix";
 import { bookMeeting, formatSlot, getAvailableSlots, isSlotFree } from "./providers/calendar";
+import { sendBookingSms } from "./providers/sms";
 import { assignRep } from "./reps";
 import { spokenSlot } from "./speech";
 import type { Contact, Qualification, SalesRep } from "./types";
@@ -94,6 +95,7 @@ export async function bookForAgent(
     after(async () => {
       await sendEmail("confirmacion", contactId);
       if (rep?.email) await sendEmail("brief_comercial", contactId);
+      await sendBookingSms(contact, m.startsAt);
     });
 
     const repLine = rep
